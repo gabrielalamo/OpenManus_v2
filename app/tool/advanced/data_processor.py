@@ -1,30 +1,31 @@
 """
 Data Processor Tool
-Handles data processing, transformation, and analysis
+Advanced data processing, transformation, and analysis capabilities
 """
 
 import json
 import os
 import re
 import csv
-import tempfile
+import asyncio
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional, Union, Tuple
 from pydantic import Field
 
 from app.tool.base import BaseTool, ToolResult
+from app.config import config
 
 
 class DataProcessorTool(BaseTool):
     """
-    Advanced data processing tool for handling data transformation,
-    cleaning, analysis, and visualization preparation.
+    Advanced data processing tool for transforming, analyzing, and extracting insights
+    from various data formats.
     """
 
     name: str = "data_processor"
     description: str = """
-    Process, transform, and analyze data from various sources.
-    Clean data, perform transformations, generate statistics, and prepare data for visualization.
+    Process, transform, analyze, and extract insights from data in various formats.
+    Supports CSV, JSON, text, and structured data processing with advanced operations.
     """
     
     parameters: dict = {
@@ -33,84 +34,84 @@ class DataProcessorTool(BaseTool):
             "action": {
                 "type": "string",
                 "enum": [
-                    "analyze_data", "clean_data", "transform_data", "merge_datasets",
-                    "extract_features", "generate_statistics", "detect_anomalies",
-                    "prepare_visualization", "export_data", "generate_report"
+                    "load_data", "transform_data", "analyze_data", "extract_insights",
+                    "filter_data", "aggregate_data", "join_data", "export_data",
+                    "validate_data", "generate_report", "detect_anomalies"
                 ],
                 "description": "The data processing action to perform"
             },
-            "data_source": {
+            "data_path": {
                 "type": "string",
-                "description": "Path to data file or JSON string of data"
+                "description": "Path to the data file or directory"
             },
             "data_format": {
                 "type": "string",
-                "enum": ["csv", "json", "xml", "excel", "text", "tabular"],
-                "description": "Format of the input data"
-            },
-            "output_format": {
-                "type": "string",
-                "enum": ["csv", "json", "excel", "html", "markdown", "text"],
-                "description": "Format for the output data"
-            },
-            "transformations": {
-                "type": "string",
-                "description": "JSON string of transformations to apply"
-            },
-            "filters": {
-                "type": "string",
-                "description": "JSON string of filters to apply"
-            },
-            "groupby": {
-                "type": "string",
-                "description": "Column or field to group data by"
-            },
-            "aggregations": {
-                "type": "string",
-                "description": "JSON string of aggregation operations"
-            },
-            "secondary_data_source": {
-                "type": "string",
-                "description": "Path to secondary data file for merge operations"
+                "enum": ["csv", "json", "text", "auto"],
+                "description": "Format of the data to process"
             },
             "output_path": {
                 "type": "string",
-                "description": "Path to save the output data"
+                "description": "Path to save the processed data or results"
             },
-            "visualization_type": {
+            "output_format": {
                 "type": "string",
-                "enum": ["table", "bar", "line", "scatter", "pie", "heatmap", "histogram"],
-                "description": "Type of visualization to prepare data for"
+                "enum": ["csv", "json", "text", "html"],
+                "description": "Format for the output data"
             },
-            "analysis_depth": {
+            "transformation": {
                 "type": "string",
-                "enum": ["basic", "intermediate", "advanced"],
-                "description": "Depth of analysis to perform"
+                "description": "JSON string defining the transformation operations"
+            },
+            "filter_criteria": {
+                "type": "string",
+                "description": "JSON string defining filter criteria"
+            },
+            "aggregation_config": {
+                "type": "string",
+                "description": "JSON string defining aggregation configuration"
+            },
+            "join_config": {
+                "type": "string",
+                "description": "JSON string defining join configuration"
+            },
+            "analysis_type": {
+                "type": "string",
+                "enum": ["statistical", "correlation", "distribution", "trend", "custom"],
+                "description": "Type of analysis to perform"
+            },
+            "custom_code": {
+                "type": "string",
+                "description": "Custom Python code for data processing (use with caution)"
+            },
+            "visualization": {
+                "type": "boolean",
+                "description": "Whether to include visualizations in the output"
             }
         },
-        "required": ["action", "data_source"]
+        "required": ["action"]
     }
 
-    # Data processing history for tracking and auditing
+    # Data storage
+    loaded_datasets: Dict[str, Any] = Field(default_factory=dict)
     processing_history: List[Dict[str, Any]] = Field(default_factory=list)
     
-    # Cache for processed datasets
-    data_cache: Dict[str, Any] = Field(default_factory=dict)
+    # Workspace directory
+    workspace_dir: str = Field(default_factory=lambda: str(config.workspace_root))
 
     async def execute(
         self,
         action: str,
-        data_source: str,
-        data_format: str = "csv",
-        output_format: str = "json",
-        transformations: Optional[str] = None,
-        filters: Optional[str] = None,
-        groupby: Optional[str] = None,
-        aggregations: Optional[str] = None,
-        secondary_data_source: Optional[str] = None,
+        data_path: Optional[str] = None,
+        data_format: str = "auto",
         output_path: Optional[str] = None,
-        visualization_type: Optional[str] = None,
-        analysis_depth: str = "basic",
+        output_format: str = "json",
+        transformation: Optional[str] = None,
+        filter_criteria: Optional[str] = None,
+        aggregation_config: Optional[str] = None,
+        join_config: Optional[str] = None,
+        analysis_type: str = "statistical",
+        custom_code: Optional[str] = None,
+        visualization: bool = False,
         **kwargs
     ) -> ToolResult:
         """Execute the data processing action."""
@@ -118,2259 +119,2425 @@ class DataProcessorTool(BaseTool):
         try:
             # Record operation start
             operation_start = datetime.now()
-            operation_log = {
+            operation_record = {
                 "action": action,
-                "data_source": data_source,
                 "start_time": operation_start.isoformat(),
                 "parameters": {
+                    "data_path": data_path,
                     "data_format": data_format,
-                    "output_format": output_format,
-                    "transformations": transformations,
-                    "filters": filters,
-                    "groupby": groupby,
-                    "aggregations": aggregations,
-                    "secondary_data_source": secondary_data_source,
                     "output_path": output_path,
-                    "visualization_type": visualization_type,
-                    "analysis_depth": analysis_depth
+                    "output_format": output_format,
+                    "analysis_type": analysis_type,
+                    "visualization": visualization
                 }
             }
             
-            # Load data
-            data = self._load_data(data_source, data_format)
-            
-            # Process based on action
-            if action == "analyze_data":
-                result = self._analyze_data(data, analysis_depth)
-            elif action == "clean_data":
-                result = self._clean_data(data, transformations)
+            # Execute requested action
+            if action == "load_data":
+                result = await self._load_data(data_path, data_format)
             elif action == "transform_data":
-                result = self._transform_data(data, transformations)
-            elif action == "merge_datasets":
-                if not secondary_data_source:
-                    return ToolResult(error="Secondary data source is required for merge operation")
-                secondary_data = self._load_data(secondary_data_source, data_format)
-                result = self._merge_datasets(data, secondary_data, transformations)
-            elif action == "extract_features":
-                result = self._extract_features(data, transformations)
-            elif action == "generate_statistics":
-                result = self._generate_statistics(data, analysis_depth)
-            elif action == "detect_anomalies":
-                result = self._detect_anomalies(data, analysis_depth)
-            elif action == "prepare_visualization":
-                if not visualization_type:
-                    return ToolResult(error="Visualization type is required for prepare_visualization action")
-                result = self._prepare_visualization(data, visualization_type, transformations)
+                result = await self._transform_data(data_path, transformation, output_path, output_format)
+            elif action == "analyze_data":
+                result = await self._analyze_data(data_path, analysis_type, visualization, output_path)
+            elif action == "extract_insights":
+                result = await self._extract_insights(data_path, analysis_type, output_path)
+            elif action == "filter_data":
+                result = await self._filter_data(data_path, filter_criteria, output_path, output_format)
+            elif action == "aggregate_data":
+                result = await self._aggregate_data(data_path, aggregation_config, output_path, output_format)
+            elif action == "join_data":
+                result = await self._join_data(data_path, join_config, output_path, output_format)
             elif action == "export_data":
-                if not output_path:
-                    return ToolResult(error="Output path is required for export_data action")
-                result = self._export_data(data, output_path, output_format)
+                result = await self._export_data(data_path, output_path, output_format)
+            elif action == "validate_data":
+                result = await self._validate_data(data_path, data_format)
             elif action == "generate_report":
-                result = self._generate_report(data, analysis_depth, output_format, output_path)
+                result = await self._generate_report(data_path, analysis_type, visualization, output_path)
+            elif action == "detect_anomalies":
+                result = await self._detect_anomalies(data_path, output_path)
             else:
                 return ToolResult(error=f"Unknown data processing action: {action}")
             
-            # Save to output path if specified
-            if output_path and action != "export_data" and action != "generate_report":
-                self._save_data(result, output_path, output_format)
-            
-            # Update operation log
-            operation_log.update({
+            # Record operation completion
+            operation_record.update({
                 "end_time": datetime.now().isoformat(),
-                "duration": (datetime.now() - operation_start).total_seconds(),
-                "success": True,
-                "result_summary": str(result)[:500] if isinstance(result, (dict, list)) else "Data processed successfully"
+                "duration_seconds": (datetime.now() - operation_start).total_seconds(),
+                "status": "success" if not result.error else "error",
+                "error": result.error
             })
             
-            # Add to history
-            self.processing_history.append(operation_log)
+            self.processing_history.append(operation_record)
             
-            # Format result for output
-            formatted_result = self._format_result(result, action, output_format)
-            
-            return ToolResult(output=formatted_result)
-            
+            return result
+                
         except Exception as e:
-            # Log error
-            operation_log.update({
-                "end_time": datetime.now().isoformat(),
-                "duration": (datetime.now() - operation_start).total_seconds(),
-                "success": False,
-                "error": str(e)
-            })
-            
-            self.processing_history.append(operation_log)
+            # Record operation failure
+            if 'operation_record' in locals():
+                operation_record.update({
+                    "end_time": datetime.now().isoformat(),
+                    "duration_seconds": (datetime.now() - operation_start).total_seconds(),
+                    "status": "error",
+                    "error": str(e)
+                })
+                self.processing_history.append(operation_record)
+                
             return ToolResult(error=f"Data processing error: {str(e)}")
 
-    def _load_data(self, data_source: str, data_format: str) -> Any:
-        """Load data from source with format detection."""
-        # Check if data is a JSON string
-        if data_source.startswith('{') or data_source.startswith('['):
-            try:
-                return json.loads(data_source)
-            except json.JSONDecodeError:
-                pass  # Not valid JSON, continue with file loading
+    async def _load_data(self, data_path: Optional[str], data_format: str) -> ToolResult:
+        """Load data from a file into memory."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        # Resolve path
+        full_path = self._resolve_path(data_path)
         
-        # Check if data source is a file path
-        if os.path.exists(data_source):
+        if not os.path.exists(full_path):
+            return ToolResult(error=f"Data file not found: {full_path}")
+            
+        # Determine format if auto
+        if data_format == "auto":
+            data_format = self._detect_format(full_path)
+            
+        try:
+            # Load data based on format
             if data_format == "csv":
-                return self._load_csv(data_source)
+                data = self._load_csv(full_path)
             elif data_format == "json":
-                return self._load_json(data_source)
+                data = self._load_json(full_path)
             elif data_format == "text":
-                return self._load_text(data_source)
-            elif data_format == "tabular":
-                return self._load_tabular(data_source)
+                data = self._load_text(full_path)
             else:
-                raise ValueError(f"Unsupported file format: {data_format}")
+                return ToolResult(error=f"Unsupported data format: {data_format}")
+                
+            # Generate dataset ID and store
+            dataset_id = f"ds_{os.path.basename(full_path)}_{int(datetime.now().timestamp())}"
+            self.loaded_datasets[dataset_id] = {
+                "id": dataset_id,
+                "path": full_path,
+                "format": data_format,
+                "loaded_at": datetime.now().isoformat(),
+                "data": data
+            }
+            
+            # Generate summary
+            summary = self._generate_data_summary(data, data_format)
+            
+            return ToolResult(
+                output=f"Data loaded successfully from {full_path}\n"
+                       f"Dataset ID: {dataset_id}\n"
+                       f"Format: {data_format}\n\n"
+                       f"Data Summary:\n{summary}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error loading data: {str(e)}")
+
+    def _resolve_path(self, path: str) -> str:
+        """Resolve a path relative to the workspace directory."""
+        if os.path.isabs(path):
+            return path
+        return os.path.join(self.workspace_dir, path)
+
+    def _detect_format(self, file_path: str) -> str:
+        """Detect the format of a data file based on extension and content."""
+        _, ext = os.path.splitext(file_path)
+        ext = ext.lower()
         
-        # If not a file or JSON string, treat as raw text data
-        if data_format == "tabular":
-            return self._parse_tabular_text(data_source)
-        elif data_format == "csv":
-            return self._parse_csv_text(data_source)
-        
-        # Default fallback
-        return data_source
+        if ext == '.csv':
+            return "csv"
+        elif ext == '.json':
+            return "json"
+        elif ext in ['.txt', '.text', '.log']:
+            return "text"
+            
+        # Try to detect by content
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            sample = f.read(1024)
+            
+        if sample.strip().startswith('{') or sample.strip().startswith('['):
+            return "json"
+        elif ',' in sample and '\n' in sample:
+            return "csv"
+            
+        return "text"  # Default to text
 
     def _load_csv(self, file_path: str) -> List[Dict[str, Any]]:
-        """Load data from CSV file."""
-        result = []
-        with open(file_path, 'r', encoding='utf-8') as f:
+        """Load data from a CSV file."""
+        data = []
+        with open(file_path, 'r', encoding='utf-8', newline='') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                result.append(dict(row))
-        return result
+                data.append(dict(row))
+        return data
 
     def _load_json(self, file_path: str) -> Any:
-        """Load data from JSON file."""
+        """Load data from a JSON file."""
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
     def _load_text(self, file_path: str) -> str:
-        """Load data from text file."""
+        """Load data from a text file."""
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read()
 
-    def _load_tabular(self, file_path: str) -> List[Dict[str, Any]]:
-        """Load data from tabular text file (e.g., pipe or tab delimited)."""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return self._parse_tabular_text(content)
-
-    def _parse_tabular_text(self, text: str) -> List[Dict[str, Any]]:
-        """Parse tabular text into structured data."""
-        lines = [line.strip() for line in text.strip().split('\n') if line.strip()]
-        if not lines:
-            return []
-        
-        # Detect delimiter
-        first_line = lines[0]
-        if '|' in first_line:
-            delimiter = '|'
-        elif '\t' in first_line:
-            delimiter = '\t'
+    def _generate_data_summary(self, data: Any, data_format: str) -> str:
+        """Generate a summary of the loaded data."""
+        if data_format == "csv" or (data_format == "json" and isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict)):
+            # Tabular data
+            record_count = len(data)
+            
+            if record_count == 0:
+                return "Empty dataset (0 records)"
+                
+            # Get columns
+            columns = list(data[0].keys())
+            
+            # Sample data
+            sample_size = min(5, record_count)
+            sample = data[:sample_size]
+            
+            summary = [f"Records: {record_count}"]
+            summary.append(f"Columns: {', '.join(columns)}")
+            summary.append(f"\nSample ({sample_size} records):")
+            
+            for i, record in enumerate(sample):
+                summary.append(f"  Record {i+1}:")
+                for col, val in record.items():
+                    summary.append(f"    {col}: {val}")
+                    
+            return "\n".join(summary)
+            
+        elif data_format == "json":
+            # Non-tabular JSON
+            if isinstance(data, dict):
+                keys = list(data.keys())
+                summary = ["JSON Object"]
+                summary.append(f"Top-level keys: {', '.join(keys[:10])}")
+                if len(keys) > 10:
+                    summary.append(f"...and {len(keys) - 10} more keys")
+            elif isinstance(data, list):
+                summary = [f"JSON Array with {len(data)} items"]
+                if len(data) > 0:
+                    summary.append(f"First item type: {type(data[0]).__name__}")
+            else:
+                summary = [f"JSON data of type: {type(data).__name__}"]
+                
+            return "\n".join(summary)
+            
+        elif data_format == "text":
+            # Text data
+            lines = data.count('\n') + 1
+            words = len(data.split())
+            chars = len(data)
+            
+            summary = [f"Text data:"]
+            summary.append(f"Lines: {lines}")
+            summary.append(f"Words: {words}")
+            summary.append(f"Characters: {chars}")
+            
+            # Preview
+            preview_lines = data.split('\n')[:5]
+            if preview_lines:
+                summary.append("\nPreview:")
+                for i, line in enumerate(preview_lines):
+                    if line.strip():
+                        summary.append(f"  {i+1}: {line[:80]}")
+                        
+            return "\n".join(summary)
+            
         else:
-            delimiter = None  # Let csv.reader detect
-        
-        # Clean up lines if using pipe delimiter
-        if delimiter == '|':
-            lines = [line.strip('|').strip() for line in lines]
-        
-        # Parse header and data
-        if delimiter:
-            reader = csv.reader([lines[0]], delimiter=delimiter)
-            headers = next(reader)
-            headers = [h.strip() for h in headers]
+            return f"Data of type {type(data).__name__}"
+
+    async def _transform_data(
+        self, 
+        data_path: Optional[str], 
+        transformation: Optional[str],
+        output_path: Optional[str],
+        output_format: str
+    ) -> ToolResult:
+        """Transform data according to specified operations."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
             
+        if not transformation:
+            return ToolResult(error="Transformation definition is required")
+            
+        # Load data if not already loaded
+        dataset = self._get_dataset(data_path)
+        if not dataset:
+            load_result = await self._load_data(data_path, "auto")
+            if load_result.error:
+                return load_result
+                
+            # Get the newly loaded dataset
+            dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
+            
+        # Parse transformation
+        try:
+            transform_config = json.loads(transformation)
+        except json.JSONDecodeError:
+            return ToolResult(error="Invalid transformation JSON")
+            
+        # Apply transformations
+        try:
+            transformed_data = self._apply_transformations(dataset["data"], transform_config)
+            
+            # Save result if output path provided
+            result_text = ""
+            if output_path:
+                full_output_path = self._resolve_path(output_path)
+                result_text = await self._save_data(transformed_data, full_output_path, output_format)
+                
+            # Generate summary
+            summary = self._generate_data_summary(transformed_data, dataset["format"])
+            
+            return ToolResult(
+                output=f"Data transformation completed successfully\n"
+                       f"Original dataset: {dataset['id']}\n"
+                       f"{result_text}\n"
+                       f"Transformation Summary:\n{summary}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error transforming data: {str(e)}")
+
+    def _get_dataset(self, data_path: str) -> Optional[Dict[str, Any]]:
+        """Get a dataset by ID or path."""
+        # Check if it's a dataset ID
+        if data_path in self.loaded_datasets:
+            return self.loaded_datasets[data_path]
+            
+        # Check if it's a file path that matches a loaded dataset
+        full_path = self._resolve_path(data_path)
+        for dataset in self.loaded_datasets.values():
+            if dataset["path"] == full_path:
+                return dataset
+                
+        return None
+
+    def _apply_transformations(self, data: Any, transform_config: Dict[str, Any]) -> Any:
+        """Apply transformations to data."""
+        operations = transform_config.get("operations", [])
+        result = data
+        
+        for operation in operations:
+            op_type = operation.get("type")
+            
+            if op_type == "select_columns":
+                columns = operation.get("columns", [])
+                result = self._select_columns(result, columns)
+                
+            elif op_type == "rename_columns":
+                mapping = operation.get("mapping", {})
+                result = self._rename_columns(result, mapping)
+                
+            elif op_type == "filter_rows":
+                condition = operation.get("condition", {})
+                result = self._filter_rows(result, condition)
+                
+            elif op_type == "sort":
+                key = operation.get("key")
+                reverse = operation.get("reverse", False)
+                result = self._sort_data(result, key, reverse)
+                
+            elif op_type == "group_by":
+                key = operation.get("key")
+                aggregations = operation.get("aggregations", {})
+                result = self._group_by(result, key, aggregations)
+                
+            elif op_type == "calculate":
+                formula = operation.get("formula")
+                output_column = operation.get("output_column")
+                result = self._calculate(result, formula, output_column)
+                
+            elif op_type == "flatten":
+                path = operation.get("path")
+                result = self._flatten(result, path)
+                
+        return result
+
+    def _select_columns(self, data: List[Dict[str, Any]], columns: List[str]) -> List[Dict[str, Any]]:
+        """Select only specified columns from tabular data."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list of records for select_columns operation")
+            
+        return [{col: row.get(col) for col in columns if col in row} for row in data]
+
+    def _rename_columns(self, data: List[Dict[str, Any]], mapping: Dict[str, str]) -> List[Dict[str, Any]]:
+        """Rename columns in tabular data."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list of records for rename_columns operation")
+            
+        result = []
+        for row in data:
+            new_row = {}
+            for old_key, value in row.items():
+                new_key = mapping.get(old_key, old_key)
+                new_row[new_key] = value
+            result.append(new_row)
+            
+        return result
+
+    def _filter_rows(self, data: List[Dict[str, Any]], condition: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Filter rows based on condition."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list of records for filter_rows operation")
+            
+        field = condition.get("field")
+        operator = condition.get("operator", "equals")
+        value = condition.get("value")
+        
+        if not field:
+            raise ValueError("Field is required for filter condition")
+            
+        result = []
+        for row in data:
+            if field not in row:
+                continue
+                
+            row_value = row[field]
+            
+            if operator == "equals" and row_value == value:
+                result.append(row)
+            elif operator == "not_equals" and row_value != value:
+                result.append(row)
+            elif operator == "greater_than" and row_value > value:
+                result.append(row)
+            elif operator == "less_than" and row_value < value:
+                result.append(row)
+            elif operator == "contains" and value in row_value:
+                result.append(row)
+            elif operator == "starts_with" and str(row_value).startswith(str(value)):
+                result.append(row)
+            elif operator == "ends_with" and str(row_value).endswith(str(value)):
+                result.append(row)
+                
+        return result
+
+    def _sort_data(self, data: List[Dict[str, Any]], key: str, reverse: bool = False) -> List[Dict[str, Any]]:
+        """Sort data by key."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list of records for sort operation")
+            
+        if not key:
+            raise ValueError("Sort key is required")
+            
+        return sorted(data, key=lambda x: x.get(key, None), reverse=reverse)
+
+    def _group_by(self, data: List[Dict[str, Any]], key: str, aggregations: Dict[str, Dict[str, str]]) -> List[Dict[str, Any]]:
+        """Group data by key and apply aggregations."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list of records for group_by operation")
+            
+        if not key:
+            raise ValueError("Group by key is required")
+            
+        # Group data
+        groups = {}
+        for row in data:
+            group_key = row.get(key)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(row)
+            
+        # Apply aggregations
+        result = []
+        for group_key, group_data in groups.items():
+            group_result = {key: group_key}
+            
+            for output_field, agg_config in aggregations.items():
+                agg_type = agg_config.get("type")
+                field = agg_config.get("field")
+                
+                if not field or not agg_type:
+                    continue
+                    
+                values = [row.get(field) for row in group_data if field in row]
+                
+                # Skip if no values
+                if not values:
+                    group_result[output_field] = None
+                    continue
+                    
+                # Apply aggregation
+                if agg_type == "sum":
+                    group_result[output_field] = sum(values)
+                elif agg_type == "avg":
+                    group_result[output_field] = sum(values) / len(values)
+                elif agg_type == "min":
+                    group_result[output_field] = min(values)
+                elif agg_type == "max":
+                    group_result[output_field] = max(values)
+                elif agg_type == "count":
+                    group_result[output_field] = len(values)
+                elif agg_type == "list":
+                    group_result[output_field] = values
+                    
+            result.append(group_result)
+            
+        return result
+
+    def _calculate(self, data: List[Dict[str, Any]], formula: str, output_column: str) -> List[Dict[str, Any]]:
+        """Calculate a new column based on a formula."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list of records for calculate operation")
+            
+        if not formula or not output_column:
+            raise ValueError("Formula and output_column are required")
+            
+        # Simple formula evaluation (for demonstration)
+        # In a real implementation, this would use a safer evaluation method
+        result = []
+        for row in data:
+            new_row = row.copy()
+            
+            # Replace field references with values
+            calc_formula = formula
+            for field, value in row.items():
+                calc_formula = calc_formula.replace(f"{{{field}}}", str(value))
+                
+            try:
+                # Evaluate formula (simplified for demonstration)
+                # WARNING: eval is unsafe for production use
+                new_row[output_column] = eval(calc_formula)
+            except Exception as e:
+                new_row[output_column] = f"Error: {str(e)}"
+                
+            result.append(new_row)
+            
+        return result
+
+    def _flatten(self, data: Any, path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Flatten nested data structures."""
+        if isinstance(data, list) and all(isinstance(item, dict) for item in data):
+            # Already flat list of dicts
+            if not path:
+                return data
+                
+            # Extract nested data
             result = []
-            for line in lines[1:]:
-                reader = csv.reader([line], delimiter=delimiter)
-                values = next(reader)
-                values = [v.strip() for v in values]
-                
-                # Ensure headers and values have same length
-                if len(headers) != len(values):
-                    # Adjust by padding or truncating
-                    if len(headers) > len(values):
-                        values.extend([''] * (len(headers) - len(values)))
-                    else:
-                        values = values[:len(headers)]
-                
-                result.append(dict(zip(headers, values)))
-            
+            for item in data:
+                nested = self._get_nested_value(item, path)
+                if isinstance(nested, list):
+                    for nested_item in nested:
+                        if isinstance(nested_item, dict):
+                            # Combine parent and nested
+                            flat_item = {k: v for k, v in item.items() if k != path.split('.')[0]}
+                            flat_item.update(nested_item)
+                            result.append(flat_item)
+                        else:
+                            # Can't flatten non-dict items
+                            result.append({**item, "value": nested_item})
+                            
             return result
+            
+        elif isinstance(data, dict):
+            # Single dict, convert to list
+            return [data]
+            
         else:
-            # Fallback to space-based splitting
-            headers = re.split(r'\s{2,}', lines[0].strip())
-            headers = [h.strip() for h in headers]
-            
-            result = []
-            for line in lines[1:]:
-                values = re.split(r'\s{2,}', line.strip())
-                values = [v.strip() for v in values]
-                
-                # Ensure headers and values have same length
-                if len(headers) != len(values):
-                    if len(headers) > len(values):
-                        values.extend([''] * (len(headers) - len(values)))
-                    else:
-                        values = values[:len(headers)]
-                
-                result.append(dict(zip(headers, values)))
-            
-            return result
+            raise ValueError(f"Cannot flatten data of type {type(data)}")
 
-    def _parse_csv_text(self, text: str) -> List[Dict[str, Any]]:
-        """Parse CSV text into structured data."""
-        lines = text.strip().split('\n')
-        reader = csv.DictReader(lines)
-        return [dict(row) for row in reader]
-
-    def _analyze_data(self, data: Any, analysis_depth: str) -> Dict[str, Any]:
-        """Analyze data and generate insights."""
-        analysis_result = {
-            "timestamp": datetime.now().isoformat(),
-            "data_type": type(data).__name__,
-            "summary": {},
-            "structure": {},
-            "statistics": {},
-            "quality_issues": [],
-            "recommendations": []
-        }
+    def _get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
+        """Get a nested value from a dictionary using dot notation."""
+        if not path:
+            return data
+            
+        parts = path.split('.')
+        current = data
         
-        # Handle different data types
-        if isinstance(data, list):
-            analysis_result["summary"]["record_count"] = len(data)
+        for part in parts:
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                return None
+                
+        return current
+
+    async def _save_data(self, data: Any, output_path: str, output_format: str) -> str:
+        """Save data to a file."""
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        if output_format == "csv":
+            if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+                raise ValueError("Data must be a list of dictionaries for CSV export")
+                
+            with open(output_path, 'w', newline='', encoding='utf-8') as f:
+                if not data:
+                    writer = csv.writer(f)
+                    writer.writerow([])
+                else:
+                    writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                    writer.writeheader()
+                    writer.writerows(data)
+                    
+        elif output_format == "json":
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                
+        elif output_format == "text":
+            with open(output_path, 'w', encoding='utf-8') as f:
+                if isinstance(data, str):
+                    f.write(data)
+                else:
+                    f.write(str(data))
+                    
+        elif output_format == "html":
+            html_content = self._generate_html_report(data)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+                
+        else:
+            raise ValueError(f"Unsupported output format: {output_format}")
             
-            if data and isinstance(data[0], dict):
-                # Tabular data (list of dicts)
-                analysis_result["structure"]["fields"] = list(data[0].keys())
-                analysis_result["structure"]["sample"] = data[0]
+        return f"Data saved to {output_path} in {output_format} format"
+
+    def _generate_html_report(self, data: Any) -> str:
+        """Generate an HTML report from data."""
+        html = ["<!DOCTYPE html>", "<html>", "<head>"]
+        html.append("<meta charset='UTF-8'>")
+        html.append("<title>Data Processing Report</title>")
+        html.append("<style>")
+        html.append("body { font-family: Arial, sans-serif; margin: 20px; }")
+        html.append("table { border-collapse: collapse; width: 100%; }")
+        html.append("th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }")
+        html.append("th { background-color: #f2f2f2; }")
+        html.append("tr:nth-child(even) { background-color: #f9f9f9; }")
+        html.append("</style>")
+        html.append("</head>")
+        html.append("<body>")
+        
+        html.append("<h1>Data Processing Report</h1>")
+        html.append(f"<p>Generated: {datetime.now().isoformat()}</p>")
+        
+        if isinstance(data, list) and all(isinstance(item, dict) for item in data):
+            # Tabular data
+            html.append("<h2>Data Table</h2>")
+            html.append("<table>")
+            
+            # Headers
+            if data:
+                html.append("<tr>")
+                for key in data[0].keys():
+                    html.append(f"<th>{key}</th>")
+                html.append("</tr>")
                 
-                # Basic field statistics
-                field_stats = {}
-                for field in analysis_result["structure"]["fields"]:
-                    field_values = [item.get(field) for item in data if field in item]
-                    field_stats[field] = self._analyze_field(field_values)
-                
-                analysis_result["statistics"]["fields"] = field_stats
-                
-                # Data quality checks
-                analysis_result["quality_issues"] = self._check_data_quality(data)
-                
-                # Generate recommendations
-                analysis_result["recommendations"] = self._generate_data_recommendations(data, field_stats)
+                # Rows
+                for item in data:
+                    html.append("<tr>")
+                    for value in item.values():
+                        html.append(f"<td>{value}</td>")
+                    html.append("</tr>")
+                    
+            html.append("</table>")
             
         elif isinstance(data, dict):
             # Dictionary data
-            analysis_result["structure"]["keys"] = list(data.keys())
-            analysis_result["structure"]["nested_objects"] = [k for k, v in data.items() if isinstance(v, (dict, list))]
+            html.append("<h2>Data Object</h2>")
+            html.append("<table>")
+            html.append("<tr><th>Key</th><th>Value</th></tr>")
             
-            # Analyze values
             for key, value in data.items():
-                if isinstance(value, list) and len(value) > 0:
-                    analysis_result["statistics"][key] = {
-                        "type": "array",
-                        "length": len(value),
-                        "sample": value[0] if len(value) > 0 else None
-                    }
-        
-        elif isinstance(data, str):
-            # Text data
-            analysis_result["summary"]["character_count"] = len(data)
-            analysis_result["summary"]["word_count"] = len(data.split())
-            analysis_result["summary"]["line_count"] = len(data.splitlines())
-            
-            # Text patterns
-            analysis_result["statistics"]["patterns"] = {
-                "urls": len(re.findall(r'https?://\S+', data)),
-                "emails": len(re.findall(r'\S+@\S+\.\S+', data)),
-                "numbers": len(re.findall(r'\b\d+\b', data)),
-                "dates": len(re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', data))
-            }
-        
-        # Advanced analysis for deeper analysis levels
-        if analysis_depth in ["intermediate", "advanced"]:
-            if isinstance(data, list) and data and isinstance(data[0], dict):
-                # Correlation analysis for numeric fields
-                numeric_fields = {}
-                for field, stats in analysis_result["statistics"]["fields"].items():
-                    if stats.get("data_type") == "numeric":
-                        values = [float(item.get(field, 0)) for item in data if field in item and item[field] and str(item[field]).replace('.', '', 1).isdigit()]
-                        if values:
-                            numeric_fields[field] = values
+                html.append("<tr>")
+                html.append(f"<td>{key}</td>")
+                html.append(f"<td>{value}</td>")
+                html.append("</tr>")
                 
-                if len(numeric_fields) >= 2:
-                    analysis_result["statistics"]["correlations"] = self._calculate_correlations(numeric_fields)
+            html.append("</table>")
             
-            # Add data distribution analysis
-            if isinstance(data, list) and len(data) > 0:
-                analysis_result["statistics"]["distribution"] = self._analyze_distribution(data)
-        
-        # Even more advanced analysis
-        if analysis_depth == "advanced":
-            if isinstance(data, list) and data and isinstance(data[0], dict):
-                # Outlier detection
-                analysis_result["statistics"]["outliers"] = self._detect_outliers(data)
-                
-                # Pattern detection
-                analysis_result["statistics"]["patterns"] = self._detect_patterns(data)
-        
-        return analysis_result
-
-    def _analyze_field(self, values: List[Any]) -> Dict[str, Any]:
-        """Analyze a single field/column of data."""
-        if not values:
-            return {"data_type": "unknown", "count": 0}
-        
-        # Count non-null values
-        non_null_values = [v for v in values if v is not None and v != ""]
-        non_null_count = len(non_null_values)
-        
-        # Determine data type
-        numeric_count = sum(1 for v in non_null_values if str(v).replace('.', '', 1).isdigit())
-        date_pattern = re.compile(r'^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$')
-        date_count = sum(1 for v in non_null_values if isinstance(v, str) and date_pattern.match(v))
-        
-        if numeric_count / max(1, non_null_count) > 0.8:
-            data_type = "numeric"
-            # Convert to float for statistics
-            try:
-                numeric_values = [float(v) for v in non_null_values if str(v).replace('.', '', 1).isdigit()]
-                if numeric_values:
-                    return {
-                        "data_type": data_type,
-                        "count": len(values),
-                        "non_null_count": non_null_count,
-                        "null_percentage": (len(values) - non_null_count) / max(1, len(values)),
-                        "min": min(numeric_values),
-                        "max": max(numeric_values),
-                        "mean": sum(numeric_values) / len(numeric_values),
-                        "unique_count": len(set(str(v) for v in values))
-                    }
-            except (ValueError, TypeError):
-                pass
-        
-        elif date_count / max(1, non_null_count) > 0.8:
-            data_type = "date"
         else:
-            data_type = "string"
+            # Other data
+            html.append("<h2>Data</h2>")
+            html.append(f"<pre>{data}</pre>")
             
-        # Basic statistics for all types
-        return {
-            "data_type": data_type,
-            "count": len(values),
-            "non_null_count": non_null_count,
-            "null_percentage": (len(values) - non_null_count) / max(1, len(values)),
-            "unique_count": len(set(str(v) for v in values)),
-            "unique_percentage": len(set(str(v) for v in values)) / max(1, non_null_count)
-        }
+        html.append("</body>")
+        html.append("</html>")
+        
+        return "\n".join(html)
 
-    def _check_data_quality(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Check for data quality issues."""
-        quality_issues = []
-        
-        if not data:
-            return quality_issues
-        
-        # Check for missing values
-        for field in data[0].keys():
-            missing_count = sum(1 for item in data if field not in item or item[field] is None or item[field] == "")
-            if missing_count > 0:
-                missing_percentage = missing_count / len(data)
-                if missing_percentage > 0.1:  # More than 10% missing
-                    quality_issues.append({
-                        "type": "missing_values",
-                        "field": field,
-                        "count": missing_count,
-                        "percentage": missing_percentage,
-                        "severity": "high" if missing_percentage > 0.5 else "medium"
-                    })
-        
-        # Check for duplicate records
-        if len(data) > 1:
-            # Create a simple hash for each record
-            record_hashes = {}
-            for i, item in enumerate(data):
-                item_hash = hash(frozenset(item.items()))
-                if item_hash in record_hashes:
-                    quality_issues.append({
-                        "type": "duplicate_record",
-                        "first_index": record_hashes[item_hash],
-                        "second_index": i,
-                        "severity": "medium"
-                    })
-                else:
-                    record_hashes[item_hash] = i
-        
-        # Check for inconsistent data types
-        for field in data[0].keys():
-            field_types = set()
-            for item in data:
-                if field in item and item[field] is not None:
-                    field_types.add(type(item[field]).__name__)
+    async def _analyze_data(
+        self, 
+        data_path: Optional[str], 
+        analysis_type: str,
+        visualization: bool,
+        output_path: Optional[str]
+    ) -> ToolResult:
+        """Analyze data and generate statistics."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
             
-            if len(field_types) > 1:
-                quality_issues.append({
-                    "type": "inconsistent_types",
-                    "field": field,
-                    "types": list(field_types),
-                    "severity": "high"
-                })
-        
-        return quality_issues
-
-    def _generate_data_recommendations(self, data: List[Dict[str, Any]], field_stats: Dict[str, Any]) -> List[str]:
-        """Generate recommendations based on data analysis."""
-        recommendations = []
-        
-        if not data:
-            recommendations.append("No data available for analysis")
-            return recommendations
-        
-        # Check for missing values
-        fields_with_nulls = [field for field, stats in field_stats.items() 
-                            if stats.get("null_percentage", 0) > 0]
-        
-        if fields_with_nulls:
-            if any(field_stats[f].get("null_percentage", 0) > 0.5 for f in fields_with_nulls):
-                recommendations.append(f"Consider removing or imputing fields with high null percentages: {', '.join(f for f in fields_with_nulls if field_stats[f].get('null_percentage', 0) > 0.5)}")
-            else:
-                recommendations.append(f"Consider strategies for handling missing values in: {', '.join(fields_with_nulls)}")
-        
-        # Check for highly correlated fields
-        if "correlations" in field_stats:
-            high_correlations = [(f1, f2, corr) for f1, f2, corr in field_stats["correlations"] if abs(corr) > 0.9]
-            if high_correlations:
-                recommendations.append(f"Found {len(high_correlations)} highly correlated field pairs. Consider feature selection or dimensionality reduction.")
-        
-        # Check for low cardinality fields
-        low_cardinality_fields = [field for field, stats in field_stats.items() 
-                                if stats.get("unique_count", 0) == 1]
-        if low_cardinality_fields:
-            recommendations.append(f"Fields with constant values detected: {', '.join(low_cardinality_fields)}. Consider removing these fields.")
-        
-        # Check for high cardinality fields
-        high_cardinality_fields = [field for field, stats in field_stats.items() 
-                                  if stats.get("data_type") == "string" and 
-                                  stats.get("unique_percentage", 0) > 0.9 and
-                                  stats.get("unique_count", 0) > 10]
-        if high_cardinality_fields:
-            recommendations.append(f"High cardinality string fields detected: {', '.join(high_cardinality_fields)}. These might be IDs or unique identifiers.")
-        
-        # Data size recommendations
-        if len(data) < 10:
-            recommendations.append("Small dataset detected. Results may not be statistically significant.")
-        elif len(data) > 10000:
-            recommendations.append("Large dataset detected. Consider sampling for exploratory analysis.")
-        
-        return recommendations
-
-    def _calculate_correlations(self, numeric_fields: Dict[str, List[float]]) -> List[tuple]:
-        """Calculate correlations between numeric fields."""
-        correlations = []
-        fields = list(numeric_fields.keys())
-        
-        for i in range(len(fields)):
-            for j in range(i+1, len(fields)):
-                field1 = fields[i]
-                field2 = fields[j]
-                values1 = numeric_fields[field1]
-                values2 = numeric_fields[field2]
+        # Load data if not already loaded
+        dataset = self._get_dataset(data_path)
+        if not dataset:
+            load_result = await self._load_data(data_path, "auto")
+            if load_result.error:
+                return load_result
                 
-                # Ensure same length by using the shorter list
-                min_length = min(len(values1), len(values2))
-                values1 = values1[:min_length]
-                values2 = values2[:min_length]
-                
-                # Simple correlation calculation
-                if min_length < 2:
-                    continue
-                    
-                mean1 = sum(values1) / min_length
-                mean2 = sum(values2) / min_length
-                
-                variance1 = sum((x - mean1) ** 2 for x in values1) / min_length
-                variance2 = sum((x - mean2) ** 2 for x in values2) / min_length
-                
-                if variance1 == 0 or variance2 == 0:
-                    continue
-                    
-                covariance = sum((values1[i] - mean1) * (values2[i] - mean2) for i in range(min_length)) / min_length
-                correlation = covariance / ((variance1 * variance2) ** 0.5)
-                
-                correlations.append((field1, field2, correlation))
-        
-        return correlations
-
-    def _analyze_distribution(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Analyze data distribution for key fields."""
-        if not data or not isinstance(data[0], dict):
-            return {}
+            # Get the newly loaded dataset
+            dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
             
-        distribution = {}
-        sample_item = data[0]
-        
-        for field, value in sample_item.items():
-            # Only analyze certain types
-            if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit()):
-                # For numeric fields, create histogram buckets
-                try:
-                    values = [float(item.get(field, 0)) for item in data if field in item and item[field] and str(item[field]).replace('.', '', 1).isdigit()]
-                    if not values:
-                        continue
-                        
-                    min_val = min(values)
-                    max_val = max(values)
-                    
-                    # Create 5 buckets
-                    bucket_size = (max_val - min_val) / 5 if max_val > min_val else 1
-                    buckets = {}
-                    
-                    for i in range(5):
-                        bucket_min = min_val + i * bucket_size
-                        bucket_max = min_val + (i + 1) * bucket_size
-                        bucket_name = f"{bucket_min:.2f}-{bucket_max:.2f}"
-                        buckets[bucket_name] = sum(1 for v in values if bucket_min <= v < bucket_max or (i == 4 and v == max_val))
-                    
-                    distribution[field] = {
-                        "type": "numeric",
-                        "min": min_val,
-                        "max": max_val,
-                        "histogram": buckets
-                    }
-                except (ValueError, TypeError):
-                    continue
-            elif isinstance(value, str):
-                # For string fields, count frequencies of top values
-                value_counts = {}
-                for item in data:
-                    if field in item and item[field]:
-                        val = str(item[field])
-                        value_counts[val] = value_counts.get(val, 0) + 1
-                
-                # Get top 5 values
-                top_values = sorted(value_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-                
-                distribution[field] = {
-                    "type": "categorical",
-                    "unique_values": len(value_counts),
-                    "top_values": dict(top_values)
-                }
-        
-        return distribution
-
-    def _detect_outliers(self, data: List[Dict[str, Any]]) -> Dict[str, List[int]]:
-        """Detect outliers in numeric fields using IQR method."""
-        if not data or not isinstance(data[0], dict):
-            return {}
-            
-        outliers = {}
-        sample_item = data[0]
-        
-        for field, value in sample_item.items():
-            # Only analyze numeric fields
-            if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit()):
-                try:
-                    values = [float(item.get(field, 0)) for item in data if field in item and item[field] and str(item[field]).replace('.', '', 1).isdigit()]
-                    if len(values) < 4:  # Need enough data points
-                        continue
-                        
-                    # Sort values
-                    sorted_values = sorted(values)
-                    n = len(sorted_values)
-                    
-                    # Calculate Q1 and Q3
-                    q1_idx = n // 4
-                    q3_idx = (3 * n) // 4
-                    q1 = sorted_values[q1_idx]
-                    q3 = sorted_values[q3_idx]
-                    
-                    # Calculate IQR and bounds
-                    iqr = q3 - q1
-                    lower_bound = q1 - (1.5 * iqr)
-                    upper_bound = q3 + (1.5 * iqr)
-                    
-                    # Find outliers
-                    outlier_indices = [i for i, item in enumerate(data) 
-                                      if field in item and item[field] and 
-                                      str(item[field]).replace('.', '', 1).isdigit() and
-                                      (float(item[field]) < lower_bound or float(item[field]) > upper_bound)]
-                    
-                    if outlier_indices:
-                        outliers[field] = outlier_indices
-                except (ValueError, TypeError):
-                    continue
-        
-        return outliers
-
-    def _detect_patterns(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Detect patterns in the data."""
-        if not data:
-            return {}
-            
-        patterns = {}
-        
-        # Detect sequential patterns in numeric fields
-        for field in data[0].keys():
-            try:
-                values = [float(item.get(field, 0)) for item in data if field in item and item[field] and str(item[field]).replace('.', '', 1).isdigit()]
-                if len(values) < 3:
-                    continue
-                
-                # Check for arithmetic sequence
-                diffs = [values[i+1] - values[i] for i in range(len(values)-1)]
-                avg_diff = sum(diffs) / len(diffs)
-                is_arithmetic = all(abs(diff - avg_diff) < 0.001 for diff in diffs)
-                
-                if is_arithmetic:
-                    patterns[field] = {
-                        "type": "arithmetic_sequence",
-                        "common_difference": avg_diff
-                    }
-                    continue
-                
-                # Check for geometric sequence
-                if all(v > 0 for v in values):
-                    ratios = [values[i+1] / values[i] for i in range(len(values)-1)]
-                    avg_ratio = sum(ratios) / len(ratios)
-                    is_geometric = all(abs(ratio - avg_ratio) < 0.001 for ratio in ratios)
-                    
-                    if is_geometric:
-                        patterns[field] = {
-                            "type": "geometric_sequence",
-                            "common_ratio": avg_ratio
-                        }
-            except (ValueError, TypeError, ZeroDivisionError):
-                continue
-        
-        return patterns
-
-    def _clean_data(self, data: Any, transformations: Optional[str]) -> Any:
-        """Clean data by removing nulls, duplicates, and applying basic transformations."""
-        if not data:
-            return data
-            
-        # Parse transformations if provided
-        cleaning_rules = {}
-        if transformations:
-            try:
-                cleaning_rules = json.loads(transformations)
-            except json.JSONDecodeError:
-                # If not valid JSON, treat as simple comma-separated list of fields to clean
-                cleaning_rules = {"fields": transformations.split(",")}
-        
-        # Handle different data types
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            # List of dictionaries (tabular data)
-            result = []
-            
-            # Get fields to process
-            fields_to_clean = cleaning_rules.get("fields", list(data[0].keys()))
-            
-            # Apply cleaning to each record
-            for item in data:
-                clean_item = item.copy()
-                
-                # Remove or replace nulls
-                for field in fields_to_clean:
-                    if field in clean_item:
-                        # Handle null values
-                        if clean_item[field] is None or clean_item[field] == "":
-                            if cleaning_rules.get("null_strategy", "remove") == "remove":
-                                del clean_item[field]
-                            else:
-                                # Replace with default value
-                                clean_item[field] = cleaning_rules.get("default_value", "")
-                        
-                        # Trim whitespace for strings
-                        elif isinstance(clean_item[field], str):
-                            clean_item[field] = clean_item[field].strip()
-                
-                result.append(clean_item)
-            
-            # Remove duplicates if specified
-            if cleaning_rules.get("remove_duplicates", True):
-                # Create a set of frozensets for deduplication
-                seen = set()
-                unique_result = []
-                
-                for item in result:
-                    # Create a hashable representation
-                    item_hash = frozenset(item.items())
-                    if item_hash not in seen:
-                        seen.add(item_hash)
-                        unique_result.append(item)
-                
-                result = unique_result
-            
-            return result
-            
-        elif isinstance(data, dict):
-            # Single dictionary
-            result = data.copy()
-            
-            # Clean each field
-            for key, value in list(result.items()):
-                if value is None or value == "":
-                    if cleaning_rules.get("null_strategy", "remove") == "remove":
-                        del result[key]
-                    else:
-                        result[key] = cleaning_rules.get("default_value", "")
-                elif isinstance(value, str):
-                    result[key] = value.strip()
-            
-            return result
-            
-        elif isinstance(data, str):
-            # Text data
-            result = data
-            
-            # Apply text cleaning
-            if cleaning_rules.get("trim_whitespace", True):
-                result = result.strip()
-            
-            if cleaning_rules.get("normalize_whitespace", True):
-                result = re.sub(r'\s+', ' ', result)
-            
-            if cleaning_rules.get("remove_special_chars", False):
-                result = re.sub(r'[^\w\s]', '', result)
-            
-            return result
-            
-        # Default: return data as is
-        return data
-
-    def _transform_data(self, data: Any, transformations: Optional[str]) -> Any:
-        """Apply transformations to data."""
-        if not data or not transformations:
-            return data
-            
-        # Parse transformations
+        # Perform analysis
         try:
-            transform_rules = json.loads(transformations)
-        except json.JSONDecodeError:
-            raise ValueError("Invalid transformations JSON")
-        
-        # Handle different data types
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            # List of dictionaries (tabular data)
-            result = []
+            analysis_result = self._perform_analysis(dataset["data"], analysis_type)
             
-            for item in data:
-                transformed_item = item.copy()
+            # Save result if output path provided
+            result_text = ""
+            if output_path:
+                full_output_path = self._resolve_path(output_path)
+                output_format = "html" if visualization else "json"
+                result_text = await self._save_data(analysis_result, full_output_path, output_format)
                 
-                # Apply field transformations
-                for transform in transform_rules.get("field_operations", []):
-                    field = transform.get("field")
-                    operation = transform.get("operation")
-                    
-                    if not field or not operation or field not in transformed_item:
-                        continue
-                    
-                    value = transformed_item[field]
-                    
-                    # Apply operation
-                    if operation == "uppercase" and isinstance(value, str):
-                        transformed_item[field] = value.upper()
-                    elif operation == "lowercase" and isinstance(value, str):
-                        transformed_item[field] = value.lower()
-                    elif operation == "capitalize" and isinstance(value, str):
-                        transformed_item[field] = value.capitalize()
-                    elif operation == "trim" and isinstance(value, str):
-                        transformed_item[field] = value.strip()
-                    elif operation == "replace" and isinstance(value, str):
-                        old_val = transform.get("old_value", "")
-                        new_val = transform.get("new_value", "")
-                        transformed_item[field] = value.replace(old_val, new_val)
-                    elif operation == "extract" and isinstance(value, str):
-                        pattern = transform.get("pattern", "")
-                        if pattern:
-                            match = re.search(pattern, value)
-                            transformed_item[field] = match.group(0) if match else ""
-                    elif operation == "multiply" and (isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit())):
-                        factor = transform.get("factor", 1)
-                        transformed_item[field] = float(value) * factor
-                    elif operation == "round" and (isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit())):
-                        decimals = transform.get("decimals", 0)
-                        transformed_item[field] = round(float(value), decimals)
-                
-                # Add computed fields
-                for compute in transform_rules.get("computed_fields", []):
-                    new_field = compute.get("name")
-                    expression = compute.get("expression")
-                    
-                    if not new_field or not expression:
-                        continue
-                    
-                    # Simple expression evaluation
-                    try:
-                        # Replace field references with values
-                        eval_expr = expression
-                        for field in transformed_item:
-                            if isinstance(transformed_item[field], (int, float)) or (isinstance(transformed_item[field], str) and transformed_item[field].replace('.', '', 1).isdigit()):
-                                eval_expr = eval_expr.replace(f"{{{field}}}", str(transformed_item[field]))
-                        
-                        # Evaluate expression
-                        transformed_item[new_field] = eval(eval_expr)
-                    except Exception:
-                        transformed_item[new_field] = None
-                
-                # Rename fields
-                for rename in transform_rules.get("rename_fields", []):
-                    old_name = rename.get("old_name")
-                    new_name = rename.get("new_name")
-                    
-                    if old_name and new_name and old_name in transformed_item:
-                        transformed_item[new_name] = transformed_item.pop(old_name)
-                
-                # Filter fields
-                if "keep_fields" in transform_rules:
-                    keep_fields = transform_rules["keep_fields"]
-                    transformed_item = {k: v for k, v in transformed_item.items() if k in keep_fields}
-                elif "drop_fields" in transform_rules:
-                    drop_fields = transform_rules["drop_fields"]
-                    transformed_item = {k: v for k, v in transformed_item.items() if k not in drop_fields}
-                
-                result.append(transformed_item)
+            # Format output
+            output = [f"Data Analysis ({analysis_type}) Completed"]
+            output.append(f"Dataset: {dataset['id']}")
+            output.append(result_text)
             
-            # Apply filters
-            if "filters" in transform_rules:
-                for filter_rule in transform_rules["filters"]:
-                    field = filter_rule.get("field")
-                    operator = filter_rule.get("operator")
-                    value = filter_rule.get("value")
-                    
-                    if not field or not operator:
-                        continue
-                    
-                    result = [item for item in result if self._apply_filter(item, field, operator, value)]
-            
-            return result
-            
-        elif isinstance(data, dict):
-            # Single dictionary
-            result = data.copy()
-            
-            # Apply transformations
-            for transform in transform_rules.get("field_operations", []):
-                field = transform.get("field")
-                operation = transform.get("operation")
-                
-                if not field or not operation or field not in result:
-                    continue
-                
-                value = result[field]
-                
-                # Apply operation (same as above)
-                if operation == "uppercase" and isinstance(value, str):
-                    result[field] = value.upper()
-                elif operation == "lowercase" and isinstance(value, str):
-                    result[field] = value.lower()
-                # ... other operations
-            
-            return result
-            
-        elif isinstance(data, str):
-            # Text data
-            result = data
-            
-            # Apply text transformations
-            for transform in transform_rules.get("text_operations", []):
-                operation = transform.get("operation")
-                
-                if operation == "uppercase":
-                    result = result.upper()
-                elif operation == "lowercase":
-                    result = result.lower()
-                elif operation == "capitalize":
-                    result = result.capitalize()
-                elif operation == "trim":
-                    result = result.strip()
-                elif operation == "replace":
-                    old_val = transform.get("old_value", "")
-                    new_val = transform.get("new_value", "")
-                    result = result.replace(old_val, new_val)
-                elif operation == "extract":
-                    pattern = transform.get("pattern", "")
-                    if pattern:
-                        match = re.search(pattern, result)
-                        result = match.group(0) if match else ""
-            
-            return result
-            
-        # Default: return data as is
-        return data
-
-    def _apply_filter(self, item: Dict[str, Any], field: str, operator: str, value: Any) -> bool:
-        """Apply filter condition to an item."""
-        if field not in item:
-            return False
-            
-        item_value = item[field]
-        
-        # Handle numeric comparisons
-        if operator in ["eq", "=", "=="]:
-            return item_value == value
-        elif operator in ["neq", "!=", "<>"]:
-            return item_value != value
-        elif operator in ["gt", ">"]:
-            try:
-                return float(item_value) > float(value)
-            except (ValueError, TypeError):
-                return False
-        elif operator in ["lt", "<"]:
-            try:
-                return float(item_value) < float(value)
-            except (ValueError, TypeError):
-                return False
-        elif operator in ["gte", ">="]:
-            try:
-                return float(item_value) >= float(value)
-            except (ValueError, TypeError):
-                return False
-        elif operator in ["lte", "<="]:
-            try:
-                return float(item_value) <= float(value)
-            except (ValueError, TypeError):
-                return False
-        
-        # String operations
-        elif operator == "contains" and isinstance(item_value, str):
-            return value in item_value
-        elif operator == "startswith" and isinstance(item_value, str):
-            return item_value.startswith(value)
-        elif operator == "endswith" and isinstance(item_value, str):
-            return item_value.endswith(value)
-        elif operator == "matches" and isinstance(item_value, str):
-            try:
-                return bool(re.search(value, item_value))
-            except re.error:
-                return False
-        
-        # Default
-        return True
-
-    def _merge_datasets(self, primary_data: Any, secondary_data: Any, merge_config: Optional[str]) -> Any:
-        """Merge two datasets based on configuration."""
-        if not primary_data or not secondary_data:
-            return primary_data
-            
-        # Parse merge configuration
-        merge_rules = {}
-        if merge_config:
-            try:
-                merge_rules = json.loads(merge_config)
-            except json.JSONDecodeError:
-                raise ValueError("Invalid merge configuration JSON")
-        
-        # Handle different data types
-        if isinstance(primary_data, list) and isinstance(secondary_data, list):
-            # Both are lists
-            if not primary_data or not secondary_data:
-                return primary_data + secondary_data
-                
-            if isinstance(primary_data[0], dict) and isinstance(secondary_data[0], dict):
-                # Both are lists of dictionaries (tabular data)
-                merge_type = merge_rules.get("merge_type", "inner")
-                join_field = merge_rules.get("join_field")
-                
-                if not join_field:
-                    # Without join field, just concatenate
-                    return primary_data + secondary_data
-                
-                # Perform join operation
-                result = []
-                
-                # Create lookup for secondary data
-                secondary_lookup = {}
-                for item in secondary_data:
-                    if join_field in item:
-                        key = item[join_field]
-                        if key not in secondary_lookup:
-                            secondary_lookup[key] = []
-                        secondary_lookup[key].append(item)
-                
-                # Perform join
-                for primary_item in primary_data:
-                    if join_field not in primary_item:
-                        if merge_type == "left" or merge_type == "outer":
-                            result.append(primary_item)
-                        continue
-                    
-                    key = primary_item[join_field]
-                    
-                    if key in secondary_lookup:
-                        # Match found
-                        for secondary_item in secondary_lookup[key]:
-                            # Merge items
-                            merged_item = primary_item.copy()
-                            
-                            # Add fields from secondary item
-                            for field, value in secondary_item.items():
-                                if field != join_field or merge_rules.get("include_join_field", True):
-                                    field_name = field
-                                    
-                                    # Handle field conflicts
-                                    if field in merged_item and field != join_field:
-                                        conflict_strategy = merge_rules.get("conflict_strategy", "suffix")
-                                        if conflict_strategy == "suffix":
-                                            field_name = f"{field}_secondary"
-                                        elif conflict_strategy == "prefix":
-                                            field_name = f"secondary_{field}"
-                                        elif conflict_strategy == "overwrite":
-                                            field_name = field
-                                    
-                                    merged_item[field_name] = value
-                            
-                            result.append(merged_item)
-                    elif merge_type in ["left", "outer"]:
-                        # No match but include in left or outer join
-                        result.append(primary_item)
-                
-                # Add unmatched secondary items for outer join
-                if merge_type == "outer":
-                    primary_keys = {item.get(join_field) for item in primary_data if join_field in item}
-                    
-                    for key, items in secondary_lookup.items():
-                        if key not in primary_keys:
-                            for secondary_item in items:
-                                result.append(secondary_item)
-                
-                return result
+            # Add summary of results
+            output.append("\nAnalysis Results Summary:")
+            if isinstance(analysis_result, dict):
+                for key, value in analysis_result.items():
+                    if isinstance(value, dict):
+                        output.append(f"  {key}:")
+                        for subkey, subvalue in value.items():
+                            output.append(f"    {subkey}: {subvalue}")
+                    else:
+                        output.append(f"  {key}: {value}")
             else:
-                # Simple lists, just concatenate
-                return primary_data + secondary_data
-        
-        elif isinstance(primary_data, dict) and isinstance(secondary_data, dict):
-            # Both are dictionaries, merge them
-            result = primary_data.copy()
+                output.append(str(analysis_result))
+                
+            return ToolResult(output="\n".join(output))
             
-            # Add fields from secondary data
-            for key, value in secondary_data.items():
-                if key not in result:
-                    result[key] = value
-                else:
-                    # Handle conflicts
-                    conflict_strategy = merge_rules.get("conflict_strategy", "suffix")
-                    if conflict_strategy == "suffix":
-                        result[f"{key}_secondary"] = value
-                    elif conflict_strategy == "prefix":
-                        result[f"secondary_{key}"] = value
-                    elif conflict_strategy == "overwrite":
-                        result[key] = value
-            
-            return result
-        
-        # Default: return primary data
-        return primary_data
+        except Exception as e:
+            return ToolResult(error=f"Error analyzing data: {str(e)}")
 
-    def _extract_features(self, data: Any, feature_config: Optional[str]) -> Any:
-        """Extract features from data based on configuration."""
+    def _perform_analysis(self, data: Any, analysis_type: str) -> Dict[str, Any]:
+        """Perform analysis on data."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list for analysis")
+            
         if not data:
-            return data
+            return {"error": "Empty dataset"}
             
-        # Parse feature configuration
-        feature_rules = {}
-        if feature_config:
-            try:
-                feature_rules = json.loads(feature_config)
-            except json.JSONDecodeError:
-                raise ValueError("Invalid feature configuration JSON")
-        
-        # Handle different data types
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            # List of dictionaries (tabular data)
-            result = []
-            
-            for item in data:
-                features = {}
-                
-                # Extract specified features
-                for feature in feature_rules.get("features", []):
-                    feature_name = feature.get("name")
-                    source_field = feature.get("source_field")
-                    feature_type = feature.get("type", "direct")
-                    
-                    if not feature_name or not source_field:
-                        continue
-                    
-                    if source_field not in item:
-                        continue
-                    
-                    source_value = item[source_field]
-                    
-                    # Apply feature extraction based on type
-                    if feature_type == "direct":
-                        features[feature_name] = source_value
-                    elif feature_type == "binary" and feature.get("threshold") is not None:
-                        threshold = float(feature.get("threshold"))
-                        try:
-                            features[feature_name] = 1 if float(source_value) >= threshold else 0
-                        except (ValueError, TypeError):
-                            features[feature_name] = 0
-                    elif feature_type == "categorical" and isinstance(source_value, str):
-                        # One-hot encoding
-                        categories = feature.get("categories", [])
-                        if not categories:
-                            features[feature_name] = source_value
-                        else:
-                            for category in categories:
-                                features[f"{feature_name}_{category}"] = 1 if source_value == category else 0
-                    elif feature_type == "normalized" and (isinstance(source_value, (int, float)) or (isinstance(source_value, str) and source_value.replace('.', '', 1).isdigit())):
-                        min_val = float(feature.get("min", 0))
-                        max_val = float(feature.get("max", 1))
-                        try:
-                            value = float(source_value)
-                            if max_val > min_val:
-                                features[feature_name] = (value - min_val) / (max_val - min_val)
-                            else:
-                                features[feature_name] = value
-                        except (ValueError, TypeError):
-                            features[feature_name] = 0
-                
-                # Add computed features
-                for compute in feature_rules.get("computed_features", []):
-                    feature_name = compute.get("name")
-                    expression = compute.get("expression")
-                    
-                    if not feature_name or not expression:
-                        continue
-                    
-                    # Simple expression evaluation
-                    try:
-                        # Replace field references with values
-                        eval_expr = expression
-                        for field in item:
-                            if isinstance(item[field], (int, float)) or (isinstance(item[field], str) and item[field].replace('.', '', 1).isdigit()):
-                                eval_expr = eval_expr.replace(f"{{{field}}}", str(item[field]))
-                        
-                        # Evaluate expression
-                        features[feature_name] = eval(eval_expr)
-                    except Exception:
-                        features[feature_name] = None
-                
-                # Include original fields if specified
-                if feature_rules.get("include_original", False):
-                    result.append({**item, **features})
-                else:
-                    result.append(features)
-            
-            return result
-        
-        # Default: return data as is
-        return data
-
-    def _generate_statistics(self, data: Any, analysis_depth: str) -> Dict[str, Any]:
-        """Generate statistical summary of the data."""
-        # This is similar to _analyze_data but focused on statistics
-        stats = {
-            "timestamp": datetime.now().isoformat(),
-            "record_count": 0,
-            "field_statistics": {},
-            "summary_statistics": {}
-        }
-        
-        # Handle different data types
-        if isinstance(data, list):
-            stats["record_count"] = len(data)
-            
-            if data and isinstance(data[0], dict):
-                # Tabular data
-                
-                # Calculate field statistics
-                for field in data[0].keys():
-                    field_values = [item.get(field) for item in data if field in item]
-                    stats["field_statistics"][field] = self._calculate_field_statistics(field_values, analysis_depth)
-                
-                # Calculate summary statistics
-                stats["summary_statistics"] = self._calculate_summary_statistics(data, analysis_depth)
-        
-        return stats
-
-    def _calculate_field_statistics(self, values: List[Any], analysis_depth: str) -> Dict[str, Any]:
-        """Calculate statistics for a single field."""
-        if not values:
-            return {"count": 0}
-            
-        field_stats = {
-            "count": len(values),
-            "null_count": sum(1 for v in values if v is None or v == ""),
-            "unique_count": len(set(str(v) for v in values if v is not None and v != ""))
-        }
-        
-        # Calculate null percentage
-        field_stats["null_percentage"] = field_stats["null_count"] / field_stats["count"]
-        
-        # Determine data type
-        numeric_values = []
-        for v in values:
-            if v is not None and v != "":
-                try:
-                    numeric_values.append(float(v))
-                except (ValueError, TypeError):
-                    pass
-        
-        if len(numeric_values) > 0.5 * len(values):
-            # Mostly numeric
-            field_stats["data_type"] = "numeric"
-            field_stats["min"] = min(numeric_values)
-            field_stats["max"] = max(numeric_values)
-            field_stats["mean"] = sum(numeric_values) / len(numeric_values)
-            
-            # Calculate median
-            sorted_values = sorted(numeric_values)
-            n = len(sorted_values)
-            if n % 2 == 0:
-                field_stats["median"] = (sorted_values[n//2 - 1] + sorted_values[n//2]) / 2
+        # For tabular data
+        if all(isinstance(item, dict) for item in data):
+            if analysis_type == "statistical":
+                return self._statistical_analysis(data)
+            elif analysis_type == "correlation":
+                return self._correlation_analysis(data)
+            elif analysis_type == "distribution":
+                return self._distribution_analysis(data)
+            elif analysis_type == "trend":
+                return self._trend_analysis(data)
             else:
-                field_stats["median"] = sorted_values[n//2]
-            
-            # Calculate standard deviation
-            if len(numeric_values) > 1:
-                mean = field_stats["mean"]
-                variance = sum((x - mean) ** 2 for x in numeric_values) / len(numeric_values)
-                field_stats["std_dev"] = variance ** 0.5
-            
-            # Advanced statistics for deeper analysis
-            if analysis_depth in ["intermediate", "advanced"]:
-                # Calculate quartiles
-                field_stats["q1"] = sorted_values[n//4]
-                field_stats["q3"] = sorted_values[(3*n)//4]
-                field_stats["iqr"] = field_stats["q3"] - field_stats["q1"]
+                raise ValueError(f"Unsupported analysis type: {analysis_type}")
                 
-                # Calculate skewness (simplified)
-                if len(numeric_values) > 2:
-                    mean = field_stats["mean"]
-                    std_dev = field_stats["std_dev"]
-                    if std_dev > 0:
-                        skewness = sum(((x - mean) / std_dev) ** 3 for x in numeric_values) / len(numeric_values)
-                        field_stats["skewness"] = skewness
-        else:
-            # Categorical
-            field_stats["data_type"] = "categorical"
-            
-            # Calculate value frequencies
-            value_counts = {}
-            for v in values:
-                if v is not None and v != "":
-                    str_v = str(v)
-                    value_counts[str_v] = value_counts.get(str_v, 0) + 1
-            
-            # Get top values
-            top_values = sorted(value_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-            field_stats["top_values"] = dict(top_values)
-            
-            # Calculate mode
-            if value_counts:
-                mode_value, mode_count = max(value_counts.items(), key=lambda x: x[1])
-                field_stats["mode"] = mode_value
-                field_stats["mode_count"] = mode_count
-                field_stats["mode_percentage"] = mode_count / field_stats["count"]
-        
-        return field_stats
+        # For non-tabular data
+        return {"error": "Data format not supported for analysis"}
 
-    def _calculate_summary_statistics(self, data: List[Dict[str, Any]], analysis_depth: str) -> Dict[str, Any]:
-        """Calculate summary statistics across the dataset."""
-        if not data:
-            return {}
-            
-        summary = {
-            "record_count": len(data),
-            "field_count": len(data[0]) if data else 0,
-            "completeness": 0.0
-        }
+    def _statistical_analysis(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Perform statistical analysis on tabular data."""
+        result = {"record_count": len(data)}
         
-        # Calculate overall completeness
-        if data and isinstance(data[0], dict):
-            total_cells = len(data) * len(data[0])
-            filled_cells = 0
-            
-            for item in data:
-                for value in item.values():
-                    if value is not None and value != "":
-                        filled_cells += 1
-            
-            summary["completeness"] = filled_cells / total_cells if total_cells > 0 else 0
+        # Get numeric columns
+        numeric_columns = self._identify_numeric_columns(data)
         
-        # Advanced summary statistics
-        if analysis_depth in ["intermediate", "advanced"]:
-            # Identify potential key fields
-            if data and isinstance(data[0], dict):
-                potential_keys = []
-                
-                for field in data[0].keys():
-                    values = [item.get(field) for item in data if field in item]
-                    unique_values = set(str(v) for v in values if v is not None and v != "")
-                    
-                    if len(unique_values) == len(values) - sum(1 for v in values if v is None or v == ""):
-                        # All non-null values are unique
-                        potential_keys.append(field)
-                
-                summary["potential_key_fields"] = potential_keys
-        
-        return summary
-
-    def _detect_anomalies(self, data: Any, analysis_depth: str) -> Dict[str, Any]:
-        """Detect anomalies in the data."""
-        anomalies = {
-            "timestamp": datetime.now().isoformat(),
-            "record_anomalies": [],
-            "field_anomalies": {},
-            "pattern_violations": []
-        }
-        
-        if not data or not isinstance(data, list) or not data:
-            return anomalies
-            
-        # Only process tabular data
-        if not isinstance(data[0], dict):
-            return anomalies
-        
-        # Detect field-level anomalies
-        for field in data[0].keys():
-            field_values = [item.get(field) for item in data if field in item]
-            field_anomalies = self._detect_field_anomalies(field, field_values, analysis_depth)
-            
-            if field_anomalies:
-                anomalies["field_anomalies"][field] = field_anomalies
-        
-        # Detect record-level anomalies
-        for i, item in enumerate(data):
-            record_anomalies = []
-            
-            # Check for unusually sparse records
-            non_null_count = sum(1 for v in item.values() if v is not None and v != "")
-            if non_null_count < 0.5 * len(item):
-                record_anomalies.append({
-                    "type": "sparse_record",
-                    "non_null_percentage": non_null_count / len(item)
-                })
-            
-            # Check for records with multiple anomalous fields
-            anomalous_fields = []
-            for field, field_anomalies in anomalies["field_anomalies"].items():
-                if field in item:
-                    value = item[field]
-                    
-                    # Check if this value is in the anomalies
-                    for anomaly in field_anomalies:
-                        if anomaly["type"] == "outlier" and i in anomaly.get("record_indices", []):
-                            anomalous_fields.append(field)
-                        elif anomaly["type"] == "unusual_value" and value == anomaly.get("value"):
-                            anomalous_fields.append(field)
-            
-            if len(anomalous_fields) >= 2:
-                record_anomalies.append({
-                    "type": "multiple_anomalies",
-                    "anomalous_fields": anomalous_fields
-                })
-            
-            if record_anomalies:
-                anomalies["record_anomalies"].append({
-                    "record_index": i,
-                    "anomalies": record_anomalies
-                })
-        
-        # Advanced pattern detection for deeper analysis
-        if analysis_depth == "advanced":
-            # Check for pattern violations
-            # This would implement more sophisticated pattern detection
-            pass
-        
-        return anomalies
-
-    def _detect_field_anomalies(self, field: str, values: List[Any], analysis_depth: str) -> List[Dict[str, Any]]:
-        """Detect anomalies in a specific field."""
-        if not values:
-            return []
-            
-        anomalies = []
-        
-        # Determine data type
-        numeric_values = []
-        for v in values:
-            if v is not None and v != "":
-                try:
-                    numeric_values.append(float(v))
-                except (ValueError, TypeError):
-                    pass
-        
-        if len(numeric_values) > 0.5 * len(values):
-            # Numeric field
-            
-            # Detect outliers using IQR method
-            if len(numeric_values) >= 4:
-                sorted_values = sorted(numeric_values)
-                n = len(sorted_values)
-                
-                # Calculate quartiles
-                q1 = sorted_values[n//4]
-                q3 = sorted_values[(3*n)//4]
-                iqr = q3 - q1
-                
-                # Define bounds
-                lower_bound = q1 - (1.5 * iqr)
-                upper_bound = q3 + (1.5 * iqr)
-                
-                # Find outliers
-                outlier_indices = []
-                for i, v in enumerate(values):
-                    if v is not None and v != "":
-                        try:
-                            float_v = float(v)
-                            if float_v < lower_bound or float_v > upper_bound:
-                                outlier_indices.append(i)
-                        except (ValueError, TypeError):
-                            pass
-                
-                if outlier_indices:
-                    anomalies.append({
-                        "type": "outlier",
-                        "method": "iqr",
-                        "lower_bound": lower_bound,
-                        "upper_bound": upper_bound,
-                        "record_indices": outlier_indices,
-                        "count": len(outlier_indices)
-                    })
-        else:
-            # Categorical field
-            
-            # Detect unusual values
-            value_counts = {}
-            for v in values:
-                if v is not None and v != "":
-                    str_v = str(v)
-                    value_counts[str_v] = value_counts.get(str_v, 0) + 1
-            
-            # Find rare values
-            total_count = sum(value_counts.values())
-            rare_values = []
-            
-            for value, count in value_counts.items():
-                percentage = count / total_count
-                if percentage < 0.01 and count == 1:  # Less than 1% and only appears once
-                    rare_values.append({
-                        "value": value,
-                        "count": count,
-                        "percentage": percentage
-                    })
-            
-            if rare_values:
-                anomalies.append({
-                    "type": "unusual_value",
-                    "rare_values": rare_values,
-                    "count": len(rare_values)
-                })
-        
-        return anomalies
-
-    def _prepare_visualization(self, data: Any, visualization_type: str, config: Optional[str]) -> Dict[str, Any]:
-        """Prepare data for visualization."""
-        if not data:
-            return {"error": "No data provided"}
-            
-        # Parse visualization configuration
-        viz_config = {}
-        if config:
-            try:
-                viz_config = json.loads(config)
-            except json.JSONDecodeError:
-                raise ValueError("Invalid visualization configuration JSON")
-        
-        # Prepare result structure
-        result = {
-            "visualization_type": visualization_type,
-            "data": None,
-            "metadata": {
-                "timestamp": datetime.now().isoformat(),
-                "record_count": 0 if not isinstance(data, list) else len(data)
-            }
-        }
-        
-        # Handle different visualization types
-        if visualization_type == "table":
-            # Simple pass-through for tabular data
-            if isinstance(data, list) and data and isinstance(data[0], dict):
-                result["data"] = data
-                result["metadata"]["columns"] = list(data[0].keys())
-            else:
-                raise ValueError("Table visualization requires tabular data (list of dictionaries)")
-        
-        elif visualization_type in ["bar", "pie"]:
-            # Requires category and value fields
-            category_field = viz_config.get("category_field")
-            value_field = viz_config.get("value_field")
-            
-            if not category_field or not value_field:
-                raise ValueError(f"{visualization_type} visualization requires category_field and value_field")
-                
-            if not isinstance(data, list) or not data or not isinstance(data[0], dict):
-                raise ValueError(f"{visualization_type} visualization requires tabular data")
-                
-            # Aggregate data
-            aggregated = {}
-            for item in data:
-                if category_field in item and value_field in item:
-                    category = str(item[category_field])
-                    try:
-                        value = float(item[value_field])
-                        aggregated[category] = aggregated.get(category, 0) + value
-                    except (ValueError, TypeError):
-                        pass
-            
-            # Convert to visualization format
-            viz_data = [{"category": k, "value": v} for k, v in aggregated.items()]
-            result["data"] = viz_data
-            result["metadata"]["categories"] = len(viz_data)
-        
-        elif visualization_type == "line":
-            # Requires x and y fields
-            x_field = viz_config.get("x_field")
-            y_field = viz_config.get("y_field")
-            series_field = viz_config.get("series_field")  # Optional
-            
-            if not x_field or not y_field:
-                raise ValueError("Line visualization requires x_field and y_field")
-                
-            if not isinstance(data, list) or not data or not isinstance(data[0], dict):
-                raise ValueError("Line visualization requires tabular data")
-                
-            # Prepare data
-            if series_field:
-                # Multiple series
-                series_data = {}
-                
-                for item in data:
-                    if x_field in item and y_field in item and series_field in item:
-                        x = item[x_field]
-                        try:
-                            y = float(item[y_field])
-                            series = str(item[series_field])
-                            
-                            if series not in series_data:
-                                series_data[series] = []
-                            
-                            series_data[series].append({"x": x, "y": y})
-                        except (ValueError, TypeError):
-                            pass
-                
-                # Convert to visualization format
-                viz_data = [{"series": k, "data": sorted(v, key=lambda point: point["x"])} for k, v in series_data.items()]
-                result["data"] = viz_data
-                result["metadata"]["series_count"] = len(viz_data)
-            else:
-                # Single series
-                viz_data = []
-                
-                for item in data:
-                    if x_field in item and y_field in item:
-                        x = item[x_field]
-                        try:
-                            y = float(item[y_field])
-                            viz_data.append({"x": x, "y": y})
-                        except (ValueError, TypeError):
-                            pass
-                
-                # Sort by x value
-                viz_data.sort(key=lambda point: point["x"])
-                result["data"] = viz_data
-                result["metadata"]["point_count"] = len(viz_data)
-        
-        elif visualization_type == "scatter":
-            # Requires x and y fields
-            x_field = viz_config.get("x_field")
-            y_field = viz_config.get("y_field")
-            color_field = viz_config.get("color_field")  # Optional
-            size_field = viz_config.get("size_field")    # Optional
-            
-            if not x_field or not y_field:
-                raise ValueError("Scatter visualization requires x_field and y_field")
-                
-            if not isinstance(data, list) or not data or not isinstance(data[0], dict):
-                raise ValueError("Scatter visualization requires tabular data")
-                
-            # Prepare data
-            viz_data = []
-            
-            for item in data:
-                if x_field in item and y_field in item:
-                    try:
-                        point = {
-                            "x": float(item[x_field]),
-                            "y": float(item[y_field])
-                        }
-                        
-                        # Add color if specified
-                        if color_field and color_field in item:
-                            point["color"] = item[color_field]
-                        
-                        # Add size if specified
-                        if size_field and size_field in item:
-                            try:
-                                point["size"] = float(item[size_field])
-                            except (ValueError, TypeError):
-                                pass
-                        
-                        viz_data.append(point)
-                    except (ValueError, TypeError):
-                        pass
-            
-            result["data"] = viz_data
-            result["metadata"]["point_count"] = len(viz_data)
-        
-        elif visualization_type == "heatmap":
-            # Requires x, y, and value fields
-            x_field = viz_config.get("x_field")
-            y_field = viz_config.get("y_field")
-            value_field = viz_config.get("value_field")
-            
-            if not x_field or not y_field or not value_field:
-                raise ValueError("Heatmap visualization requires x_field, y_field, and value_field")
-                
-            if not isinstance(data, list) or not data or not isinstance(data[0], dict):
-                raise ValueError("Heatmap visualization requires tabular data")
-                
-            # Prepare data
-            viz_data = []
-            
-            for item in data:
-                if x_field in item and y_field in item and value_field in item:
-                    try:
-                        viz_data.append({
-                            "x": item[x_field],
-                            "y": item[y_field],
-                            "value": float(item[value_field])
-                        })
-                    except (ValueError, TypeError):
-                        pass
-            
-            result["data"] = viz_data
-            result["metadata"]["cell_count"] = len(viz_data)
-        
-        elif visualization_type == "histogram":
-            # Requires value field
-            value_field = viz_config.get("value_field")
-            bins = viz_config.get("bins", 10)
-            
-            if not value_field:
-                raise ValueError("Histogram visualization requires value_field")
-                
-            if not isinstance(data, list) or not data or not isinstance(data[0], dict):
-                raise ValueError("Histogram visualization requires tabular data")
-                
-            # Extract values
-            values = []
-            for item in data:
-                if value_field in item:
-                    try:
-                        values.append(float(item[value_field]))
-                    except (ValueError, TypeError):
-                        pass
+        # Calculate statistics for each numeric column
+        column_stats = {}
+        for column in numeric_columns:
+            values = [float(row[column]) for row in data if column in row and row[column] is not None]
             
             if not values:
-                raise ValueError(f"No numeric values found for field: {value_field}")
+                continue
                 
-            # Calculate histogram
+            stats = {
+                "count": len(values),
+                "min": min(values),
+                "max": max(values),
+                "sum": sum(values),
+                "mean": sum(values) / len(values),
+                "median": sorted(values)[len(values) // 2]
+            }
+            
+            # Calculate standard deviation
+            mean = stats["mean"]
+            variance = sum((x - mean) ** 2 for x in values) / len(values)
+            stats["std_dev"] = variance ** 0.5
+            
+            column_stats[column] = stats
+            
+        result["column_statistics"] = column_stats
+        
+        # Get categorical columns
+        categorical_columns = self._identify_categorical_columns(data)
+        
+        # Calculate frequency distributions for categorical columns
+        category_stats = {}
+        for column in categorical_columns:
+            values = [row[column] for row in data if column in row and row[column] is not None]
+            
+            if not values:
+                continue
+                
+            # Count frequencies
+            frequencies = {}
+            for value in values:
+                frequencies[value] = frequencies.get(value, 0) + 1
+                
+            category_stats[column] = {
+                "count": len(values),
+                "unique_values": len(frequencies),
+                "frequencies": frequencies
+            }
+            
+        result["categorical_statistics"] = category_stats
+        
+        return result
+
+    def _identify_numeric_columns(self, data: List[Dict[str, Any]]) -> List[str]:
+        """Identify numeric columns in tabular data."""
+        if not data:
+            return []
+            
+        # Get all columns
+        columns = list(data[0].keys())
+        
+        # Check each column
+        numeric_columns = []
+        for column in columns:
+            # Check first 10 non-null values
+            values = [row[column] for row in data[:min(100, len(data))] 
+                     if column in row and row[column] is not None][:10]
+            
+            if not values:
+                continue
+                
+            # Check if all values can be converted to float
+            try:
+                all(float(value) for value in values)
+                numeric_columns.append(column)
+            except (ValueError, TypeError):
+                continue
+                
+        return numeric_columns
+
+    def _identify_categorical_columns(self, data: List[Dict[str, Any]]) -> List[str]:
+        """Identify categorical columns in tabular data."""
+        if not data:
+            return []
+            
+        # Get all columns
+        columns = list(data[0].keys())
+        
+        # Get numeric columns
+        numeric_columns = self._identify_numeric_columns(data)
+        
+        # Identify categorical columns (non-numeric with limited unique values)
+        categorical_columns = []
+        for column in columns:
+            if column in numeric_columns:
+                continue
+                
+            # Get unique values
+            values = set(row[column] for row in data[:min(1000, len(data))] 
+                        if column in row and row[column] is not None)
+            
+            # If number of unique values is reasonable, consider it categorical
+            if len(values) <= min(20, len(data) // 5):
+                categorical_columns.append(column)
+                
+        return categorical_columns
+
+    def _correlation_analysis(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Perform correlation analysis on numeric columns."""
+        # Identify numeric columns
+        numeric_columns = self._identify_numeric_columns(data)
+        
+        if len(numeric_columns) < 2:
+            return {"error": "Need at least 2 numeric columns for correlation analysis"}
+            
+        # Calculate correlations
+        correlations = {}
+        for i, col1 in enumerate(numeric_columns):
+            correlations[col1] = {}
+            
+            for col2 in numeric_columns[i:]:
+                # Get paired values
+                pairs = [(float(row[col1]), float(row[col2])) 
+                         for row in data 
+                         if col1 in row and col2 in row 
+                         and row[col1] is not None and row[col2] is not None]
+                
+                if not pairs:
+                    correlations[col1][col2] = None
+                    continue
+                    
+                # Calculate Pearson correlation
+                x_values = [p[0] for p in pairs]
+                y_values = [p[1] for p in pairs]
+                
+                n = len(pairs)
+                sum_x = sum(x_values)
+                sum_y = sum(y_values)
+                sum_xy = sum(x * y for x, y in pairs)
+                sum_x2 = sum(x * x for x in x_values)
+                sum_y2 = sum(y * y for y in y_values)
+                
+                numerator = n * sum_xy - sum_x * sum_y
+                denominator = ((n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2)) ** 0.5
+                
+                if denominator == 0:
+                    correlation = 0
+                else:
+                    correlation = numerator / denominator
+                    
+                correlations[col1][col2] = correlation
+                
+                # Add symmetric value
+                if col1 != col2:
+                    if col2 not in correlations:
+                        correlations[col2] = {}
+                    correlations[col2][col1] = correlation
+                    
+        return {"correlations": correlations}
+
+    def _distribution_analysis(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze the distribution of values in each column."""
+        result = {}
+        
+        # Analyze numeric columns
+        numeric_columns = self._identify_numeric_columns(data)
+        numeric_distributions = {}
+        
+        for column in numeric_columns:
+            values = [float(row[column]) for row in data if column in row and row[column] is not None]
+            
+            if not values:
+                continue
+                
+            # Calculate basic statistics
             min_val = min(values)
             max_val = max(values)
-            bin_width = (max_val - min_val) / bins if max_val > min_val else 1
             
-            histogram = [0] * bins
+            # Create bins
+            bin_count = min(10, len(set(values)))
+            bin_size = (max_val - min_val) / bin_count if max_val > min_val else 1
+            
+            bins = {}
+            for i in range(bin_count):
+                bin_min = min_val + i * bin_size
+                bin_max = min_val + (i + 1) * bin_size
+                bin_name = f"{bin_min:.2f}-{bin_max:.2f}"
+                bins[bin_name] = 0
+                
+            # Count values in each bin
             for value in values:
-                bin_index = min(bins - 1, max(0, int((value - min_val) / bin_width)))
-                histogram[bin_index] += 1
+                bin_index = min(bin_count - 1, int((value - min_val) / bin_size))
+                bin_min = min_val + bin_index * bin_size
+                bin_max = min_val + (bin_index + 1) * bin_size
+                bin_name = f"{bin_min:.2f}-{bin_max:.2f}"
+                bins[bin_name] += 1
+                
+            numeric_distributions[column] = {
+                "min": min_val,
+                "max": max_val,
+                "distribution": bins
+            }
             
-            # Create bin labels
-            bin_labels = []
-            for i in range(bins):
-                bin_min = min_val + i * bin_width
-                bin_max = min_val + (i + 1) * bin_width
-                bin_labels.append(f"{bin_min:.2f}-{bin_max:.2f}")
-            
-            # Format for visualization
-            viz_data = [{"bin": bin_labels[i], "count": histogram[i]} for i in range(bins)]
-            result["data"] = viz_data
-            result["metadata"]["bin_count"] = bins
-            result["metadata"]["value_count"] = len(values)
+        result["numeric_distributions"] = numeric_distributions
         
-        else:
-            raise ValueError(f"Unsupported visualization type: {visualization_type}")
+        # Analyze categorical columns
+        categorical_columns = self._identify_categorical_columns(data)
+        categorical_distributions = {}
+        
+        for column in categorical_columns:
+            values = [row[column] for row in data if column in row and row[column] is not None]
+            
+            if not values:
+                continue
+                
+            # Count frequencies
+            frequencies = {}
+            for value in values:
+                frequencies[value] = frequencies.get(value, 0) + 1
+                
+            # Sort by frequency
+            sorted_frequencies = dict(sorted(frequencies.items(), key=lambda x: x[1], reverse=True))
+            
+            categorical_distributions[column] = {
+                "unique_values": len(frequencies),
+                "most_common": list(sorted_frequencies.keys())[:5],
+                "distribution": sorted_frequencies
+            }
+            
+        result["categorical_distributions"] = categorical_distributions
         
         return result
 
-    def _export_data(self, data: Any, output_path: str, output_format: str) -> Dict[str, Any]:
-        """Export data to a file in the specified format."""
-        if not data:
-            return {"error": "No data to export"}
+    def _trend_analysis(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze trends in time series data."""
+        # Identify potential date/time columns
+        date_columns = []
+        for column in data[0].keys():
+            # Check if column name suggests date
+            if any(date_term in column.lower() for date_term in ["date", "time", "day", "month", "year"]):
+                date_columns.append(column)
+                
+        if not date_columns:
+            return {"error": "No date/time columns identified for trend analysis"}
             
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        # Use first identified date column
+        date_column = date_columns[0]
         
-        result = {
-            "timestamp": datetime.now().isoformat(),
-            "output_path": output_path,
-            "output_format": output_format,
-            "success": False,
-            "record_count": 0 if not isinstance(data, list) else len(data)
+        # Identify numeric columns for trend analysis
+        numeric_columns = self._identify_numeric_columns(data)
+        
+        if not numeric_columns:
+            return {"error": "No numeric columns found for trend analysis"}
+            
+        # Sort data by date column (assuming string representation)
+        sorted_data = sorted(data, key=lambda x: x.get(date_column, ""))
+        
+        # Analyze trends for each numeric column
+        trends = {}
+        for column in numeric_columns:
+            # Extract date-value pairs
+            series = [(row.get(date_column), float(row.get(column, 0))) 
+                     for row in sorted_data 
+                     if column in row and row[column] is not None]
+            
+            if len(series) < 2:
+                continue
+                
+            # Calculate simple trend indicators
+            values = [pair[1] for pair in series]
+            first_value = values[0]
+            last_value = values[-1]
+            min_value = min(values)
+            max_value = max(values)
+            
+            # Calculate change
+            absolute_change = last_value - first_value
+            percent_change = (absolute_change / first_value) * 100 if first_value != 0 else float('inf')
+            
+            # Determine trend direction
+            if absolute_change > 0:
+                direction = "increasing"
+            elif absolute_change < 0:
+                direction = "decreasing"
+            else:
+                direction = "stable"
+                
+            # Calculate simple moving average (last 3 points)
+            moving_avg = sum(values[-3:]) / min(3, len(values))
+            
+            trends[column] = {
+                "first_value": first_value,
+                "last_value": last_value,
+                "min_value": min_value,
+                "max_value": max_value,
+                "absolute_change": absolute_change,
+                "percent_change": percent_change,
+                "direction": direction,
+                "moving_average": moving_avg
+            }
+            
+        return {
+            "date_column": date_column,
+            "data_points": len(sorted_data),
+            "trends": trends
         }
-        
+
+    async def _extract_insights(
+        self, 
+        data_path: Optional[str], 
+        analysis_type: str,
+        output_path: Optional[str]
+    ) -> ToolResult:
+        """Extract insights from data analysis."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        # First perform analysis
+        analysis_result = await self._analyze_data(data_path, analysis_type, False, None)
+        if analysis_result.error:
+            return analysis_result
+            
+        # Extract insights from analysis results
         try:
-            if output_format == "json":
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                result["success"] = True
+            # Parse analysis results
+            analysis_output = analysis_result.output
+            dataset_id = analysis_output.split("Dataset: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
             
-            elif output_format == "csv":
-                if isinstance(data, list) and data and isinstance(data[0], dict):
-                    with open(output_path, 'w', newline='', encoding='utf-8') as f:
-                        fieldnames = data[0].keys()
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
-                        writer.writeheader()
-                        writer.writerows(data)
-                    result["success"] = True
-                else:
-                    result["error"] = "CSV export requires tabular data (list of dictionaries)"
+            if not dataset:
+                return ToolResult(error="Dataset not found")
+                
+            # Generate insights based on analysis type
+            insights = self._generate_insights(dataset["data"], analysis_type)
             
-            elif output_format == "text":
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    if isinstance(data, str):
-                        f.write(data)
-                    else:
-                        f.write(str(data))
-                result["success"] = True
+            # Save insights if output path provided
+            result_text = ""
+            if output_path:
+                full_output_path = self._resolve_path(output_path)
+                result_text = await self._save_data(insights, full_output_path, "html")
+                
+            # Format output
+            output = ["Data Insights Extracted"]
+            output.append(f"Dataset: {dataset['id']}")
+            output.append(f"Analysis Type: {analysis_type}")
+            output.append(result_text)
             
-            elif output_format == "markdown":
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    if isinstance(data, list) and data and isinstance(data[0], dict):
-                        # Create markdown table
-                        headers = list(data[0].keys())
-                        f.write("| " + " | ".join(headers) + " |\n")
-                        f.write("| " + " | ".join(["---"] * len(headers)) + " |\n")
-                        
-                        for item in data:
-                            row = []
-                            for header in headers:
-                                value = item.get(header, "")
-                                row.append(str(value).replace("|", "\\|"))
-                            f.write("| " + " | ".join(row) + " |\n")
-                    else:
-                        # Just write as code block
-                        f.write("```\n")
-                        f.write(str(data))
-                        f.write("\n```\n")
-                result["success"] = True
+            # Add key insights
+            output.append("\nKey Insights:")
+            for category, category_insights in insights.items():
+                output.append(f"\n{category}:")
+                for insight in category_insights:
+                    output.append(f"  • {insight}")
+                    
+            return ToolResult(output="\n".join(output))
             
-            elif output_format == "html":
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    if isinstance(data, list) and data and isinstance(data[0], dict):
-                        # Create HTML table
-                        f.write("<table>\n<thead>\n<tr>\n")
-                        headers = list(data[0].keys())
-                        for header in headers:
-                            f.write(f"<th>{header}</th>\n")
-                        f.write("</tr>\n</thead>\n<tbody>\n")
-                        
-                        for item in data:
-                            f.write("<tr>\n")
-                            for header in headers:
-                                value = item.get(header, "")
-                                f.write(f"<td>{value}</td>\n")
-                            f.write("</tr>\n")
-                        
-                        f.write("</tbody>\n</table>")
-                    else:
-                        # Just write as pre
-                        f.write("<pre>\n")
-                        f.write(str(data))
-                        f.write("\n</pre>\n")
-                result["success"] = True
-            
-            else:
-                result["error"] = f"Unsupported output format: {output_format}"
-        
         except Exception as e:
-            result["error"] = str(e)
-        
-        return result
+            return ToolResult(error=f"Error extracting insights: {str(e)}")
 
-    def _generate_report(self, data: Any, analysis_depth: str, output_format: str, output_path: Optional[str]) -> Dict[str, Any]:
-        """Generate a comprehensive report from the data."""
-        # First analyze the data
-        analysis = self._analyze_data(data, analysis_depth)
-        
-        # Generate statistics
-        statistics = self._generate_statistics(data, analysis_depth)
-        
-        # Detect anomalies
-        anomalies = self._detect_anomalies(data, analysis_depth)
-        
-        # Combine into a report
-        report = {
-            "title": "Data Analysis Report",
-            "timestamp": datetime.now().isoformat(),
-            "summary": {
-                "data_type": analysis["data_type"],
-                "record_count": statistics["record_count"],
-                "field_count": statistics.get("field_count", 0),
-                "completeness": statistics.get("summary_statistics", {}).get("completeness", 0),
-                "quality_issues": len(analysis.get("quality_issues", [])),
-                "anomalies_detected": sum(len(field_anomalies) for field_anomalies in anomalies.get("field_anomalies", {}).values())
-            },
-            "analysis": analysis,
-            "statistics": statistics,
-            "anomalies": anomalies,
-            "recommendations": analysis.get("recommendations", [])
+    def _generate_insights(self, data: Any, analysis_type: str) -> Dict[str, List[str]]:
+        """Generate insights from analyzed data."""
+        insights = {
+            "key_findings": [],
+            "patterns": [],
+            "anomalies": [],
+            "recommendations": []
         }
         
-        # Format and export the report if output_path is provided
-        if output_path:
-            self._export_report(report, output_path, output_format)
-            report["output_path"] = output_path
-        
-        return report
-
-    def _export_report(self, report: Dict[str, Any], output_path: str, output_format: str) -> None:
-        """Export a report to a file in the specified format."""
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        
-        if output_format == "json":
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(report, f, indent=2, ensure_ascii=False)
-        
-        elif output_format == "markdown":
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(f"# {report['title']}\n\n")
-                f.write(f"Generated: {report['timestamp']}\n\n")
+        if not isinstance(data, list) or not data:
+            insights["key_findings"].append("Insufficient data for meaningful insights")
+            return insights
+            
+        # For tabular data
+        if all(isinstance(item, dict) for item in data):
+            # Perform analysis if needed
+            if analysis_type == "statistical":
+                stats = self._statistical_analysis(data)
                 
-                f.write("## Summary\n\n")
-                for key, value in report["summary"].items():
-                    f.write(f"- **{key.replace('_', ' ').title()}**: {value}\n")
-                
-                f.write("\n## Key Findings\n\n")
-                
-                # Quality issues
-                if report["analysis"].get("quality_issues"):
-                    f.write("### Quality Issues\n\n")
-                    for issue in report["analysis"]["quality_issues"]:
-                        f.write(f"- {issue['type']} in field '{issue.get('field', 'unknown')}': {issue.get('count', 0)} instances\n")
-                
-                # Anomalies
-                if report["anomalies"].get("field_anomalies"):
-                    f.write("\n### Anomalies\n\n")
-                    for field, anomalies in report["anomalies"]["field_anomalies"].items():
-                        f.write(f"#### Field: {field}\n\n")
-                        for anomaly in anomalies:
-                            f.write(f"- {anomaly['type']}: {anomaly.get('count', 0)} instances\n")
-                
-                # Recommendations
-                if report.get("recommendations"):
-                    f.write("\n## Recommendations\n\n")
-                    for i, rec in enumerate(report["recommendations"], 1):
-                        f.write(f"{i}. {rec}\n")
-                
-                # Field Statistics
-                if report["statistics"].get("field_statistics"):
-                    f.write("\n## Field Statistics\n\n")
-                    for field, stats in report["statistics"]["field_statistics"].items():
-                        f.write(f"### {field}\n\n")
-                        f.write(f"- **Type**: {stats.get('data_type', 'unknown')}\n")
-                        f.write(f"- **Count**: {stats.get('count', 0)}\n")
-                        f.write(f"- **Null Count**: {stats.get('null_count', 0)} ({stats.get('null_percentage', 0):.1%})\n")
-                        f.write(f"- **Unique Count**: {stats.get('unique_count', 0)}\n")
+                # Extract insights from statistics
+                column_stats = stats.get("column_statistics", {})
+                for column, col_stats in column_stats.items():
+                    # Check for extreme values
+                    if col_stats.get("max") > col_stats.get("mean") * 2:
+                        insights["anomalies"].append(
+                            f"Column '{column}' has extreme high values (max: {col_stats['max']:.2f}, mean: {col_stats['mean']:.2f})"
+                        )
                         
-                        if stats.get('data_type') == 'numeric':
-                            f.write(f"- **Min**: {stats.get('min', 0)}\n")
-                            f.write(f"- **Max**: {stats.get('max', 0)}\n")
-                            f.write(f"- **Mean**: {stats.get('mean', 0)}\n")
-                            f.write(f"- **Median**: {stats.get('median', 0)}\n")
-                            if 'std_dev' in stats:
-                                f.write(f"- **Std Dev**: {stats['std_dev']}\n")
+                    # Check for high variance
+                    if col_stats.get("std_dev", 0) > col_stats.get("mean", 0):
+                        insights["patterns"].append(
+                            f"Column '{column}' shows high variability (std dev: {col_stats['std_dev']:.2f}, mean: {col_stats['mean']:.2f})"
+                        )
                         
-                        if stats.get('data_type') == 'categorical' and 'top_values' in stats:
-                            f.write("\n**Top Values**:\n\n")
-                            for value, count in stats['top_values'].items():
-                                f.write(f"- {value}: {count}\n")
+                # Check categorical distributions
+                cat_stats = stats.get("categorical_statistics", {})
+                for column, col_stats in cat_stats.items():
+                    frequencies = col_stats.get("frequencies", {})
+                    if frequencies:
+                        # Find dominant category
+                        top_category, top_count = max(frequencies.items(), key=lambda x: x[1])
+                        dominance = top_count / col_stats.get("count", 1)
                         
-                        f.write("\n")
-        
-        elif output_format == "html":
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>{report['title']}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; }}
-        h1, h2, h3 {{ color: #333; }}
-        table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
-        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-        th {{ background-color: #f2f2f2; }}
-        .summary {{ background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
-        .issues {{ background-color: #fff0f0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
-        .recommendations {{ background-color: #f0fff0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
-    </style>
-</head>
-<body>
-    <h1>{report['title']}</h1>
-    <p>Generated: {report['timestamp']}</p>
-    
-    <div class="summary">
-        <h2>Summary</h2>
-        <ul>
-""")
+                        if dominance > 0.7:
+                            insights["key_findings"].append(
+                                f"Column '{column}' is dominated by value '{top_category}' ({dominance:.1%} of records)"
+                            )
+                            
+            elif analysis_type == "correlation":
+                corr_analysis = self._correlation_analysis(data)
+                correlations = corr_analysis.get("correlations", {})
                 
-                for key, value in report["summary"].items():
-                    f.write(f"            <li><strong>{key.replace('_', ' ').title()}</strong>: {value}</li>\n")
-                
-                f.write("""        </ul>
-    </div>
-    
-    <h2>Key Findings</h2>
-""")
-                
-                # Quality issues
-                if report["analysis"].get("quality_issues"):
-                    f.write("""    <div class="issues">
-        <h3>Quality Issues</h3>
-        <ul>
-""")
-                    for issue in report["analysis"]["quality_issues"]:
-                        f.write(f"            <li>{issue['type']} in field '{issue.get('field', 'unknown')}': {issue.get('count', 0)} instances</li>\n")
-                    f.write("""        </ul>
-    </div>
-""")
-                
-                # Anomalies
-                if report["anomalies"].get("field_anomalies"):
-                    f.write("""    <div class="issues">
-        <h3>Anomalies</h3>
-""")
-                    for field, anomalies in report["anomalies"]["field_anomalies"].items():
-                        f.write(f"        <h4>Field: {field}</h4>\n        <ul>\n")
-                        for anomaly in anomalies:
-                            f.write(f"            <li>{anomaly['type']}: {anomaly.get('count', 0)} instances</li>\n")
-                        f.write("        </ul>\n")
-                    f.write("    </div>\n")
-                
-                # Recommendations
-                if report.get("recommendations"):
-                    f.write("""    <div class="recommendations">
-        <h3>Recommendations</h3>
-        <ol>
-""")
-                    for rec in report["recommendations"]:
-                        f.write(f"            <li>{rec}</li>\n")
-                    f.write("""        </ol>
-    </div>
-""")
-                
-                # Field Statistics
-                if report["statistics"].get("field_statistics"):
-                    f.write("    <h2>Field Statistics</h2>\n")
+                # Find strong correlations
+                strong_correlations = []
+                for col1, col_corrs in correlations.items():
+                    for col2, corr_value in col_corrs.items():
+                        if col1 != col2 and corr_value is not None:
+                            if abs(corr_value) > 0.7:
+                                strong_correlations.append((col1, col2, corr_value))
+                                
+                # Add insights for strong correlations
+                for col1, col2, corr_value in strong_correlations:
+                    direction = "positive" if corr_value > 0 else "negative"
+                    insights["patterns"].append(
+                        f"Strong {direction} correlation ({corr_value:.2f}) between '{col1}' and '{col2}'"
+                    )
                     
-                    for field, stats in report["statistics"]["field_statistics"].items():
-                        f.write(f"    <h3>{field}</h3>\n")
-                        f.write("    <table>\n        <tr><th>Metric</th><th>Value</th></tr>\n")
-                        f.write(f"        <tr><td>Type</td><td>{stats.get('data_type', 'unknown')}</td></tr>\n")
-                        f.write(f"        <tr><td>Count</td><td>{stats.get('count', 0)}</td></tr>\n")
-                        f.write(f"        <tr><td>Null Count</td><td>{stats.get('null_count', 0)} ({stats.get('null_percentage', 0):.1%})</td></tr>\n")
-                        f.write(f"        <tr><td>Unique Count</td><td>{stats.get('unique_count', 0)}</td></tr>\n")
-                        
-                        if stats.get('data_type') == 'numeric':
-                            f.write(f"        <tr><td>Min</td><td>{stats.get('min', 0)}</td></tr>\n")
-                            f.write(f"        <tr><td>Max</td><td>{stats.get('max', 0)}</td></tr>\n")
-                            f.write(f"        <tr><td>Mean</td><td>{stats.get('mean', 0)}</td></tr>\n")
-                            f.write(f"        <tr><td>Median</td><td>{stats.get('median', 0)}</td></tr>\n")
-                            if 'std_dev' in stats:
-                                f.write(f"        <tr><td>Std Dev</td><td>{stats['std_dev']}</td></tr>\n")
-                        
-                        f.write("    </table>\n")
-                        
-                        if stats.get('data_type') == 'categorical' and 'top_values' in stats:
-                            f.write("    <h4>Top Values</h4>\n")
-                            f.write("    <table>\n        <tr><th>Value</th><th>Count</th></tr>\n")
-                            for value, count in stats['top_values'].items():
-                                f.write(f"        <tr><td>{value}</td><td>{count}</td></tr>\n")
-                            f.write("    </table>\n")
-                
-                f.write("""</body>
-</html>
-""")
-        
-        elif output_format == "text":
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(f"{report['title']}\n")
-                f.write(f"Generated: {report['timestamp']}\n\n")
-                
-                f.write("SUMMARY\n")
-                f.write("=======\n")
-                for key, value in report["summary"].items():
-                    f.write(f"{key.replace('_', ' ').title()}: {value}\n")
-                
-                f.write("\nKEY FINDINGS\n")
-                f.write("============\n")
-                
-                # Quality issues
-                if report["analysis"].get("quality_issues"):
-                    f.write("\nQuality Issues:\n")
-                    for issue in report["analysis"]["quality_issues"]:
-                        f.write(f"- {issue['type']} in field '{issue.get('field', 'unknown')}': {issue.get('count', 0)} instances\n")
-                
-                # Anomalies
-                if report["anomalies"].get("field_anomalies"):
-                    f.write("\nAnomalies:\n")
-                    for field, anomalies in report["anomalies"]["field_anomalies"].items():
-                        f.write(f"\nField: {field}\n")
-                        for anomaly in anomalies:
-                            f.write(f"- {anomaly['type']}: {anomaly.get('count', 0)} instances\n")
-                
-                # Recommendations
-                if report.get("recommendations"):
-                    f.write("\nRECOMMENDATIONS\n")
-                    f.write("===============\n")
-                    for i, rec in enumerate(report["recommendations"], 1):
-                        f.write(f"{i}. {rec}\n")
-                
-                # Field Statistics
-                if report["statistics"].get("field_statistics"):
-                    f.write("\nFIELD STATISTICS\n")
-                    f.write("================\n")
+                # Add recommendations based on correlations
+                if strong_correlations:
+                    insights["recommendations"].append(
+                        f"Consider further investigation of relationships between correlated variables"
+                    )
                     
-                    for field, stats in report["statistics"]["field_statistics"].items():
-                        f.write(f"\n{field}\n")
-                        f.write(f"{'-' * len(field)}\n")
-                        f.write(f"Type: {stats.get('data_type', 'unknown')}\n")
-                        f.write(f"Count: {stats.get('count', 0)}\n")
-                        f.write(f"Null Count: {stats.get('null_count', 0)} ({stats.get('null_percentage', 0):.1%})\n")
-                        f.write(f"Unique Count: {stats.get('unique_count', 0)}\n")
+            elif analysis_type == "trend":
+                trend_analysis = self._trend_analysis(data)
+                trends = trend_analysis.get("trends", {})
+                
+                # Add insights for significant trends
+                for column, trend in trends.items():
+                    percent_change = trend.get("percent_change")
+                    direction = trend.get("direction")
+                    
+                    if abs(percent_change) > 20:
+                        insights["key_findings"].append(
+                            f"'{column}' shows significant {direction} trend ({percent_change:.1f}% change)"
+                        )
                         
-                        if stats.get('data_type') == 'numeric':
-                            f.write(f"Min: {stats.get('min', 0)}\n")
-                            f.write(f"Max: {stats.get('max', 0)}\n")
-                            f.write(f"Mean: {stats.get('mean', 0)}\n")
-                            f.write(f"Median: {stats.get('median', 0)}\n")
-                            if 'std_dev' in stats:
-                                f.write(f"Std Dev: {stats['std_dev']}\n")
+                    # Check for volatility
+                    min_val = trend.get("min_value", 0)
+                    max_val = trend.get("max_value", 0)
+                    first_val = trend.get("first_value", 0)
+                    
+                    if first_val and (max_val - min_val) / first_val > 0.5:
+                        insights["patterns"].append(
+                            f"'{column}' shows high volatility (range: {min_val:.2f} to {max_val:.2f})"
+                        )
                         
-                        if stats.get('data_type') == 'categorical' and 'top_values' in stats:
-                            f.write("\nTop Values:\n")
-                            for value, count in stats['top_values'].items():
-                                f.write(f"- {value}: {count}\n")
+        # Add general insights
+        insights["key_findings"].append(f"Dataset contains {len(data)} records")
         
-        else:
-            raise ValueError(f"Unsupported output format for report: {output_format}")
+        # Add recommendations if none yet
+        if not insights["recommendations"]:
+            if analysis_type == "statistical":
+                insights["recommendations"].append("Consider correlation analysis to identify relationships between variables")
+            elif analysis_type == "correlation":
+                insights["recommendations"].append("Consider trend analysis to identify changes over time")
+            elif analysis_type == "trend":
+                insights["recommendations"].append("Consider forecasting future values based on identified trends")
+                
+        return insights
 
-    def _save_data(self, data: Any, output_path: str, output_format: str) -> None:
-        """Save data to a file in the specified format."""
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    async def _filter_data(
+        self, 
+        data_path: Optional[str], 
+        filter_criteria: Optional[str],
+        output_path: Optional[str],
+        output_format: str
+    ) -> ToolResult:
+        """Filter data based on criteria."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        if not filter_criteria:
+            return ToolResult(error="Filter criteria is required")
+            
+        # Load data if not already loaded
+        dataset = self._get_dataset(data_path)
+        if not dataset:
+            load_result = await self._load_data(data_path, "auto")
+            if load_result.error:
+                return load_result
+                
+            # Get the newly loaded dataset
+            dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
+            
+        # Parse filter criteria
+        try:
+            criteria = json.loads(filter_criteria)
+        except json.JSONDecodeError:
+            return ToolResult(error="Invalid filter criteria JSON")
+            
+        # Apply filter
+        try:
+            filtered_data = self._apply_filter(dataset["data"], criteria)
+            
+            # Save result if output path provided
+            result_text = ""
+            if output_path:
+                full_output_path = self._resolve_path(output_path)
+                result_text = await self._save_data(filtered_data, full_output_path, output_format)
+                
+            # Generate summary
+            original_count = len(dataset["data"]) if isinstance(dataset["data"], list) else 1
+            filtered_count = len(filtered_data) if isinstance(filtered_data, list) else 1
+            
+            return ToolResult(
+                output=f"Data filtered successfully\n"
+                       f"Original records: {original_count}\n"
+                       f"Filtered records: {filtered_count}\n"
+                       f"Filter rate: {(original_count - filtered_count) / original_count:.1%}\n"
+                       f"{result_text}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error filtering data: {str(e)}")
+
+    def _apply_filter(self, data: Any, criteria: Dict[str, Any]) -> Any:
+        """Apply filter criteria to data."""
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list for filtering")
+            
+        # Get filter conditions
+        conditions = criteria.get("conditions", [])
+        operator = criteria.get("operator", "and").lower()
         
-        if output_format == "json":
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+        if not conditions:
+            return data
+            
+        # Apply filters
+        filtered_data = []
+        for item in data:
+            matches = []
+            
+            for condition in conditions:
+                field = condition.get("field")
+                op = condition.get("operator", "equals")
+                value = condition.get("value")
+                
+                if field not in item:
+                    matches.append(False)
+                    continue
+                    
+                item_value = item[field]
+                
+                # Apply operator
+                if op == "equals":
+                    matches.append(item_value == value)
+                elif op == "not_equals":
+                    matches.append(item_value != value)
+                elif op == "greater_than":
+                    matches.append(item_value > value)
+                elif op == "less_than":
+                    matches.append(item_value < value)
+                elif op == "contains":
+                    matches.append(value in item_value)
+                elif op == "starts_with":
+                    matches.append(str(item_value).startswith(str(value)))
+                elif op == "ends_with":
+                    matches.append(str(item_value).endswith(str(value)))
+                elif op == "in":
+                    matches.append(item_value in value)
+                elif op == "not_in":
+                    matches.append(item_value not in value)
+                else:
+                    matches.append(False)
+                    
+            # Combine conditions
+            if operator == "and" and all(matches):
+                filtered_data.append(item)
+            elif operator == "or" and any(matches):
+                filtered_data.append(item)
+                
+        return filtered_data
+
+    async def _aggregate_data(
+        self, 
+        data_path: Optional[str], 
+        aggregation_config: Optional[str],
+        output_path: Optional[str],
+        output_format: str
+    ) -> ToolResult:
+        """Aggregate data based on configuration."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        if not aggregation_config:
+            return ToolResult(error="Aggregation configuration is required")
+            
+        # Load data if not already loaded
+        dataset = self._get_dataset(data_path)
+        if not dataset:
+            load_result = await self._load_data(data_path, "auto")
+            if load_result.error:
+                return load_result
+                
+            # Get the newly loaded dataset
+            dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
+            
+        # Parse aggregation configuration
+        try:
+            config = json.loads(aggregation_config)
+        except json.JSONDecodeError:
+            return ToolResult(error="Invalid aggregation configuration JSON")
+            
+        # Apply aggregation
+        try:
+            aggregated_data = self._apply_aggregation(dataset["data"], config)
+            
+            # Save result if output path provided
+            result_text = ""
+            if output_path:
+                full_output_path = self._resolve_path(output_path)
+                result_text = await self._save_data(aggregated_data, full_output_path, output_format)
+                
+            return ToolResult(
+                output=f"Data aggregation completed successfully\n"
+                       f"Original dataset: {dataset['id']}\n"
+                       f"Aggregated records: {len(aggregated_data)}\n"
+                       f"{result_text}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error aggregating data: {str(e)}")
+
+    def _apply_aggregation(self, data: Any, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Apply aggregation to data."""
+        if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+            raise ValueError("Data must be a list of dictionaries for aggregation")
+            
+        # Get group by fields
+        group_by = config.get("group_by", [])
+        if not group_by:
+            raise ValueError("group_by is required for aggregation")
+            
+        # Get aggregations
+        aggregations = config.get("aggregations", {})
+        if not aggregations:
+            raise ValueError("aggregations is required")
+            
+        # Group data
+        groups = {}
+        for item in data:
+            # Create group key
+            key_parts = []
+            for field in group_by:
+                key_parts.append(str(item.get(field, "")))
+                
+            group_key = "|".join(key_parts)
+            
+            if group_key not in groups:
+                groups[group_key] = {
+                    "items": [],
+                    "group_values": {field: item.get(field) for field in group_by}
+                }
+                
+            groups[group_key]["items"].append(item)
+            
+        # Apply aggregations
+        result = []
+        for group_key, group_data in groups.items():
+            group_result = group_data["group_values"].copy()
+            
+            for output_field, agg_config in aggregations.items():
+                field = agg_config.get("field")
+                agg_type = agg_config.get("type")
+                
+                if not field or not agg_type:
+                    continue
+                    
+                # Get values
+                values = [
+                    float(item[field]) 
+                    for item in group_data["items"] 
+                    if field in item and item[field] is not None
+                ]
+                
+                if not values:
+                    group_result[output_field] = None
+                    continue
+                    
+                # Apply aggregation
+                if agg_type == "sum":
+                    group_result[output_field] = sum(values)
+                elif agg_type == "avg":
+                    group_result[output_field] = sum(values) / len(values)
+                elif agg_type == "min":
+                    group_result[output_field] = min(values)
+                elif agg_type == "max":
+                    group_result[output_field] = max(values)
+                elif agg_type == "count":
+                    group_result[output_field] = len(values)
+                elif agg_type == "count_distinct":
+                    group_result[output_field] = len(set(values))
+                    
+            result.append(group_result)
+            
+        return result
+
+    async def _join_data(
+        self, 
+        data_path: Optional[str], 
+        join_config: Optional[str],
+        output_path: Optional[str],
+        output_format: str
+    ) -> ToolResult:
+        """Join two datasets based on configuration."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        if not join_config:
+            return ToolResult(error="Join configuration is required")
+            
+        # Parse join configuration
+        try:
+            config = json.loads(join_config)
+        except json.JSONDecodeError:
+            return ToolResult(error="Invalid join configuration JSON")
+            
+        # Get required parameters
+        right_data_path = config.get("right_data_path")
+        if not right_data_path:
+            return ToolResult(error="right_data_path is required in join configuration")
+            
+        join_type = config.get("join_type", "inner")
+        left_key = config.get("left_key")
+        right_key = config.get("right_key")
         
-        elif output_format == "csv":
-            if isinstance(data, list) and data and isinstance(data[0], dict):
-                with open(output_path, 'w', newline='', encoding='utf-8') as f:
-                    fieldnames = data[0].keys()
-                    writer = csv.DictWriter(f, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(data)
+        if not left_key or not right_key:
+            return ToolResult(error="left_key and right_key are required in join configuration")
+            
+        # Load left dataset
+        left_dataset = self._get_dataset(data_path)
+        if not left_dataset:
+            load_result = await self._load_data(data_path, "auto")
+            if load_result.error:
+                return load_result
+                
+            left_dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            left_dataset = self.loaded_datasets.get(left_dataset_id)
+            
+        # Load right dataset
+        right_dataset = self._get_dataset(right_data_path)
+        if not right_dataset:
+            load_result = await self._load_data(right_data_path, "auto")
+            if load_result.error:
+                return load_result
+                
+            right_dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            right_dataset = self.loaded_datasets.get(right_dataset_id)
+            
+        # Perform join
+        try:
+            joined_data = self._perform_join(
+                left_dataset["data"], 
+                right_dataset["data"], 
+                left_key, 
+                right_key, 
+                join_type
+            )
+            
+            # Save result if output path provided
+            result_text = ""
+            if output_path:
+                full_output_path = self._resolve_path(output_path)
+                result_text = await self._save_data(joined_data, full_output_path, output_format)
+                
+            return ToolResult(
+                output=f"Data join completed successfully\n"
+                       f"Left dataset: {left_dataset['id']} ({len(left_dataset['data'])} records)\n"
+                       f"Right dataset: {right_dataset['id']} ({len(right_dataset['data'])} records)\n"
+                       f"Join type: {join_type}\n"
+                       f"Joined records: {len(joined_data)}\n"
+                       f"{result_text}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error joining data: {str(e)}")
+
+    def _perform_join(
+        self, 
+        left_data: List[Dict[str, Any]], 
+        right_data: List[Dict[str, Any]],
+        left_key: str,
+        right_key: str,
+        join_type: str
+    ) -> List[Dict[str, Any]]:
+        """Perform a join operation between two datasets."""
+        if not isinstance(left_data, list) or not all(isinstance(item, dict) for item in left_data):
+            raise ValueError("Left data must be a list of dictionaries")
+            
+        if not isinstance(right_data, list) or not all(isinstance(item, dict) for item in right_data):
+            raise ValueError("Right data must be a list of dictionaries")
+            
+        # Create lookup for right data
+        right_lookup = {}
+        for item in right_data:
+            if right_key in item:
+                key_value = item[right_key]
+                if key_value not in right_lookup:
+                    right_lookup[key_value] = []
+                right_lookup[key_value].append(item)
+                
+        # Perform join
+        result = []
+        
+        # Process left data
+        for left_item in left_data:
+            if left_key not in left_item:
+                if join_type == "left" or join_type == "full":
+                    # Include left items without join key for left and full joins
+                    result.append(left_item)
+                continue
+                
+            left_key_value = left_item[left_key]
+            matching_right_items = right_lookup.get(left_key_value, [])
+            
+            if matching_right_items:
+                # Join with matching right items
+                for right_item in matching_right_items:
+                    # Create joined item
+                    joined_item = left_item.copy()
+                    
+                    # Add right item fields, prefixing any duplicate keys
+                    for key, value in right_item.items():
+                        if key in joined_item and key != right_key:
+                            joined_item[f"right_{key}"] = value
+                        else:
+                            joined_item[key] = value
+                            
+                    result.append(joined_item)
+            elif join_type == "left" or join_type == "full":
+                # Include left items without matches for left and full joins
+                result.append(left_item)
+                
+        # For full and right joins, include right items without matches
+        if join_type == "full" or join_type == "right":
+            # Find right items without matches
+            matched_right_keys = set()
+            for left_item in left_data:
+                if left_key in left_item:
+                    matched_right_keys.add(left_item[left_key])
+                    
+            # Add unmatched right items
+            for right_item in right_data:
+                if right_key in right_item and right_item[right_key] not in matched_right_keys:
+                    result.append(right_item)
+                    
+        return result
+
+    async def _export_data(
+        self, 
+        data_path: Optional[str],
+        output_path: Optional[str],
+        output_format: str
+    ) -> ToolResult:
+        """Export data to a file in the specified format."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        if not output_path:
+            return ToolResult(error="Output path is required")
+            
+        # Load data if not already loaded
+        dataset = self._get_dataset(data_path)
+        if not dataset:
+            load_result = await self._load_data(data_path, "auto")
+            if load_result.error:
+                return load_result
+                
+            # Get the newly loaded dataset
+            dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
+            
+        # Export data
+        try:
+            full_output_path = self._resolve_path(output_path)
+            result_text = await self._save_data(dataset["data"], full_output_path, output_format)
+            
+            return ToolResult(
+                output=f"Data exported successfully\n"
+                       f"Source dataset: {dataset['id']}\n"
+                       f"{result_text}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error exporting data: {str(e)}")
+
+    async def _validate_data(
+        self, 
+        data_path: Optional[str],
+        data_format: str
+    ) -> ToolResult:
+        """Validate data against schema or rules."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        # Load data if not already loaded
+        dataset = self._get_dataset(data_path)
+        if not dataset:
+            load_result = await self._load_data(data_path, data_format)
+            if load_result.error:
+                return load_result
+                
+            # Get the newly loaded dataset
+            dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
+            
+        # Perform validation
+        try:
+            validation_results = self._validate_dataset(dataset["data"])
+            
+            return ToolResult(
+                output=f"Data validation completed\n"
+                       f"Dataset: {dataset['id']}\n"
+                       f"Valid: {validation_results['valid']}\n"
+                       f"Issues found: {len(validation_results['issues'])}\n\n"
+                       f"Validation Summary:\n{self._format_validation_results(validation_results)}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error validating data: {str(e)}")
+
+    def _validate_dataset(self, data: Any) -> Dict[str, Any]:
+        """Validate dataset for common issues."""
+        validation_results = {
+            "valid": True,
+            "issues": []
+        }
+        
+        if not isinstance(data, list):
+            validation_results["valid"] = False
+            validation_results["issues"].append({
+                "type": "format",
+                "message": f"Data is not a list (type: {type(data).__name__})"
+            })
+            return validation_results
+            
+        if not data:
+            validation_results["issues"].append({
+                "type": "warning",
+                "message": "Dataset is empty"
+            })
+            return validation_results
+            
+        # For tabular data
+        if all(isinstance(item, dict) for item in data):
+            # Check for consistent schema
+            first_item_keys = set(data[0].keys())
+            for i, item in enumerate(data[1:], 1):
+                item_keys = set(item.keys())
+                if item_keys != first_item_keys:
+                    missing = first_item_keys - item_keys
+                    extra = item_keys - first_item_keys
+                    
+                    validation_results["valid"] = False
+                    validation_results["issues"].append({
+                        "type": "schema",
+                        "message": f"Inconsistent schema at record {i}",
+                        "details": {
+                            "missing_fields": list(missing),
+                            "extra_fields": list(extra)
+                        }
+                    })
+                    
+            # Check for missing values in key fields
+            for field in first_item_keys:
+                missing_count = sum(1 for item in data if field not in item or item[field] is None)
+                if missing_count > 0:
+                    validation_results["issues"].append({
+                        "type": "missing_values",
+                        "message": f"Field '{field}' has {missing_count} missing values ({missing_count/len(data):.1%})"
+                    })
+                    
+                    if missing_count / len(data) > 0.5:
+                        validation_results["valid"] = False
+                        
+            # Check for duplicate records
+            record_hashes = set()
+            duplicates = 0
+            
+            for item in data:
+                # Create a simple hash of the record
+                item_hash = hash(frozenset(item.items()))
+                if item_hash in record_hashes:
+                    duplicates += 1
+                else:
+                    record_hashes.add(item_hash)
+                    
+            if duplicates > 0:
+                validation_results["issues"].append({
+                    "type": "duplicates",
+                    "message": f"Found {duplicates} duplicate records ({duplicates/len(data):.1%})"
+                })
+                
+                if duplicates / len(data) > 0.1:
+                    validation_results["valid"] = False
+                    
+            # Check data types
+            type_issues = self._check_data_types(data)
+            if type_issues:
+                validation_results["issues"].extend(type_issues)
+                validation_results["valid"] = False
+                
+        return validation_results
+
+    def _check_data_types(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Check for data type inconsistencies."""
+        issues = []
+        
+        # Get all fields
+        fields = set()
+        for item in data:
+            fields.update(item.keys())
+            
+        # Check each field
+        for field in fields:
+            # Get non-null values
+            values = [item[field] for item in data if field in item and item[field] is not None]
+            
+            if not values:
+                continue
+                
+            # Determine expected type from first value
+            first_type = type(values[0])
+            
+            # Check for type inconsistencies
+            type_counts = {}
+            for value in values:
+                value_type = type(value)
+                type_counts[value_type] = type_counts.get(value_type, 0) + 1
+                
+            # If multiple types, report issue
+            if len(type_counts) > 1:
+                details = {str(t.__name__): count for t, count in type_counts.items()}
+                
+                issues.append({
+                    "type": "inconsistent_types",
+                    "message": f"Field '{field}' has inconsistent data types",
+                    "details": details
+                })
+                
+        return issues
+
+    def _format_validation_results(self, results: Dict[str, Any]) -> str:
+        """Format validation results for display."""
+        output = []
+        
+        if results["valid"]:
+            output.append("✅ Data is valid")
+        else:
+            output.append("❌ Data validation failed")
+            
+        if not results["issues"]:
+            output.append("No issues found")
+        else:
+            output.append(f"Issues found: {len(results['issues'])}")
+            
+            for issue in results["issues"]:
+                icon = "❌" if issue["type"] not in ["warning"] else "⚠️"
+                output.append(f"\n{icon} {issue['message']}")
+                
+                if "details" in issue:
+                    for key, value in issue["details"].items():
+                        output.append(f"   - {key}: {value}")
+                        
+        return "\n".join(output)
+
+    async def _generate_report(
+        self, 
+        data_path: Optional[str],
+        analysis_type: str,
+        visualization: bool,
+        output_path: Optional[str]
+    ) -> ToolResult:
+        """Generate a comprehensive data report."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        if not output_path:
+            return ToolResult(error="Output path is required")
+            
+        # First perform analysis
+        analysis_result = await self._analyze_data(data_path, analysis_type, False, None)
+        if analysis_result.error:
+            return analysis_result
+            
+        # Then extract insights
+        insights_result = await self._extract_insights(data_path, analysis_type, None)
+        if insights_result.error:
+            return insights_result
+            
+        # Generate report
+        try:
+            # Parse results
+            analysis_output = analysis_result.output
+            dataset_id = analysis_output.split("Dataset: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
+            
+            if not dataset:
+                return ToolResult(error="Dataset not found")
+                
+            # Parse insights
+            insights_output = insights_result.output
+            insights_text = insights_output.split("Key Insights:")[1] if "Key Insights:" in insights_output else ""
+            
+            # Generate report
+            report = self._generate_data_report(dataset, analysis_type, insights_text, visualization)
+            
+            # Save report
+            full_output_path = self._resolve_path(output_path)
+            await self._save_data(report, full_output_path, "html")
+            
+            return ToolResult(
+                output=f"Data report generated successfully\n"
+                       f"Dataset: {dataset['id']}\n"
+                       f"Analysis Type: {analysis_type}\n"
+                       f"Report saved to: {full_output_path}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error generating report: {str(e)}")
+
+    def _generate_data_report(
+        self, 
+        dataset: Dict[str, Any],
+        analysis_type: str,
+        insights_text: str,
+        visualization: bool
+    ) -> str:
+        """Generate a comprehensive HTML data report."""
+        data = dataset["data"]
+        
+        html = ["<!DOCTYPE html>", "<html>", "<head>"]
+        html.append("<meta charset='UTF-8'>")
+        html.append("<title>Data Analysis Report</title>")
+        html.append("<style>")
+        html.append("body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }")
+        html.append("h1, h2, h3 { color: #333; }")
+        html.append("table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }")
+        html.append("th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }")
+        html.append("th { background-color: #f2f2f2; }")
+        html.append("tr:nth-child(even) { background-color: #f9f9f9; }")
+        html.append(".summary { background-color: #f0f8ff; padding: 15px; border-radius: 5px; margin-bottom: 20px; }")
+        html.append(".insights { background-color: #f0fff0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }")
+        html.append(".warning { color: #ff4500; }")
+        html.append("</style>")
+        html.append("</head>")
+        html.append("<body>")
+        
+        # Header
+        html.append("<h1>Data Analysis Report</h1>")
+        html.append(f"<p>Generated: {datetime.now().isoformat()}</p>")
+        html.append(f"<p>Dataset: {dataset['id']}</p>")
+        html.append(f"<p>Format: {dataset['format']}</p>")
+        
+        # Summary section
+        html.append("<div class='summary'>")
+        html.append("<h2>Dataset Summary</h2>")
+        
+        if isinstance(data, list):
+            html.append(f"<p>Records: {len(data)}</p>")
+            
+            if data and isinstance(data[0], dict):
+                html.append(f"<p>Fields: {len(data[0].keys())}</p>")
+                html.append("<p>Field names: " + ", ".join(data[0].keys()) + "</p>")
+                
+        html.append("</div>")
+        
+        # Insights section
+        if insights_text:
+            html.append("<div class='insights'>")
+            html.append("<h2>Key Insights</h2>")
+            
+            # Convert insights text to HTML
+            insights_lines = insights_text.strip().split("\n")
+            current_category = None
+            
+            for line in insights_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                if not line.startswith("  "):
+                    # Category header
+                    if current_category:
+                        html.append("</ul>")
+                    current_category = line.strip(":")
+                    html.append(f"<h3>{current_category}</h3>")
+                    html.append("<ul>")
+                else:
+                    # Insight item
+                    insight = line.strip("• ").strip()
+                    html.append(f"<li>{insight}</li>")
+                    
+            if current_category:
+                html.append("</ul>")
+                
+            html.append("</div>")
+            
+        # Analysis section
+        html.append("<h2>Analysis Results</h2>")
+        
+        if analysis_type == "statistical":
+            html.append("<h3>Statistical Analysis</h3>")
+            
+            # Numeric columns
+            numeric_columns = self._identify_numeric_columns(data)
+            if numeric_columns:
+                html.append("<h4>Numeric Fields</h4>")
+                html.append("<table>")
+                html.append("<tr><th>Field</th><th>Min</th><th>Max</th><th>Mean</th><th>Median</th><th>Std Dev</th></tr>")
+                
+                for column in numeric_columns:
+                    values = [float(row[column]) for row in data if column in row and row[column] is not None]
+                    
+                    if values:
+                        min_val = min(values)
+                        max_val = max(values)
+                        mean = sum(values) / len(values)
+                        median = sorted(values)[len(values) // 2]
+                        variance = sum((x - mean) ** 2 for x in values) / len(values)
+                        std_dev = variance ** 0.5
+                        
+                        html.append("<tr>")
+                        html.append(f"<td>{column}</td>")
+                        html.append(f"<td>{min_val:.2f}</td>")
+                        html.append(f"<td>{max_val:.2f}</td>")
+                        html.append(f"<td>{mean:.2f}</td>")
+                        html.append(f"<td>{median:.2f}</td>")
+                        html.append(f"<td>{std_dev:.2f}</td>")
+                        html.append("</tr>")
+                        
+                html.append("</table>")
+                
+            # Categorical columns
+            categorical_columns = self._identify_categorical_columns(data)
+            if categorical_columns:
+                html.append("<h4>Categorical Fields</h4>")
+                
+                for column in categorical_columns:
+                    values = [row[column] for row in data if column in row and row[column] is not None]
+                    
+                    if values:
+                        # Count frequencies
+                        frequencies = {}
+                        for value in values:
+                            frequencies[value] = frequencies.get(value, 0) + 1
+                            
+                        # Sort by frequency
+                        sorted_frequencies = dict(sorted(frequencies.items(), key=lambda x: x[1], reverse=True))
+                        
+                        html.append(f"<h5>{column}</h5>")
+                        html.append("<table>")
+                        html.append("<tr><th>Value</th><th>Count</th><th>Percentage</th></tr>")
+                        
+                        for value, count in list(sorted_frequencies.items())[:10]:  # Top 10
+                            percentage = count / len(values) * 100
+                            html.append("<tr>")
+                            html.append(f"<td>{value}</td>")
+                            html.append(f"<td>{count}</td>")
+                            html.append(f"<td>{percentage:.1f}%</td>")
+                            html.append("</tr>")
+                            
+                        html.append("</table>")
+                        
+        elif analysis_type == "correlation":
+            html.append("<h3>Correlation Analysis</h3>")
+            
+            # Identify numeric columns
+            numeric_columns = self._identify_numeric_columns(data)
+            
+            if len(numeric_columns) >= 2:
+                # Calculate correlations
+                correlations = {}
+                for i, col1 in enumerate(numeric_columns):
+                    correlations[col1] = {}
+                    
+                    for col2 in numeric_columns[i:]:
+                        # Get paired values
+                        pairs = [(float(row[col1]), float(row[col2])) 
+                                for row in data 
+                                if col1 in row and col2 in row 
+                                and row[col1] is not None and row[col2] is not None]
+                        
+                        if not pairs:
+                            correlations[col1][col2] = None
+                            continue
+                            
+                        # Calculate Pearson correlation
+                        x_values = [p[0] for p in pairs]
+                        y_values = [p[1] for p in pairs]
+                        
+                        n = len(pairs)
+                        sum_x = sum(x_values)
+                        sum_y = sum(y_values)
+                        sum_xy = sum(x * y for x, y in pairs)
+                        sum_x2 = sum(x * x for x in x_values)
+                        sum_y2 = sum(y * y for y in y_values)
+                        
+                        numerator = n * sum_xy - sum_x * sum_y
+                        denominator = ((n * sum_x2 - sum_x ** 2) * (n * sum_y2 - sum_y ** 2)) ** 0.5
+                        
+                        if denominator == 0:
+                            correlation = 0
+                        else:
+                            correlation = numerator / denominator
+                            
+                        correlations[col1][col2] = correlation
+                        
+                        # Add symmetric value
+                        if col1 != col2:
+                            if col2 not in correlations:
+                                correlations[col2] = {}
+                            correlations[col2][col1] = correlation
+                            
+                # Display correlation matrix
+                html.append("<h4>Correlation Matrix</h4>")
+                html.append("<table>")
+                
+                # Header row
+                html.append("<tr><th></th>")
+                for col in numeric_columns:
+                    html.append(f"<th>{col}</th>")
+                html.append("</tr>")
+                
+                # Data rows
+                for row_col in numeric_columns:
+                    html.append(f"<tr><th>{row_col}</th>")
+                    
+                    for col in numeric_columns:
+                        corr = correlations.get(row_col, {}).get(col)
+                        
+                        if corr is None:
+                            cell = "N/A"
+                        else:
+                            # Color-code based on correlation strength
+                            if abs(corr) > 0.7:
+                                color = "#ff9999" if corr < 0 else "#99ff99"
+                            elif abs(corr) > 0.4:
+                                color = "#ffcccc" if corr < 0 else "#ccffcc"
+                            else:
+                                color = "#ffffff"
+                                
+                            cell = f"<span style='background-color: {color}'>{corr:.2f}</span>"
+                            
+                        html.append(f"<td>{cell}</td>")
+                        
+                    html.append("</tr>")
+                    
+                html.append("</table>")
+                
+                # Strong correlations
+                strong_correlations = []
+                for col1 in numeric_columns:
+                    for col2 in numeric_columns:
+                        if col1 >= col2:
+                            continue
+                            
+                        corr = correlations.get(col1, {}).get(col2)
+                        if corr is not None and abs(corr) > 0.7:
+                            strong_correlations.append((col1, col2, corr))
+                            
+                if strong_correlations:
+                    html.append("<h4>Strong Correlations</h4>")
+                    html.append("<ul>")
+                    
+                    for col1, col2, corr in strong_correlations:
+                        direction = "positive" if corr > 0 else "negative"
+                        html.append(f"<li><strong>{col1}</strong> and <strong>{col2}</strong>: {direction} correlation ({corr:.2f})</li>")
+                        
+                    html.append("</ul>")
+                    
             else:
-                raise ValueError("CSV export requires tabular data (list of dictionaries)")
-        
-        elif output_format == "text":
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(str(data))
-        
-        else:
-            raise ValueError(f"Unsupported output format: {output_format}")
-
-    def _format_result(self, result: Any, action: str, output_format: str) -> str:
-        """Format the result for output."""
-        if isinstance(result, dict) and "error" in result:
-            return f"Error: {result['error']}"
+                html.append("<p class='warning'>Insufficient numeric columns for correlation analysis</p>")
+                
+        elif analysis_type == "trend":
+            html.append("<h3>Trend Analysis</h3>")
             
-        if action == "analyze_data":
-            return self._format_analysis_result(result)
-        elif action == "generate_statistics":
-            return self._format_statistics_result(result)
-        elif action == "detect_anomalies":
-            return self._format_anomalies_result(result)
-        elif action == "prepare_visualization":
-            return self._format_visualization_result(result)
-        elif action == "export_data" or action == "generate_report":
-            if isinstance(result, dict) and "output_path" in result:
-                return f"Data successfully exported to {result['output_path']} in {result.get('output_format', output_format)} format."
-            return "Data export completed."
-        else:
-            # Default formatting
-            if output_format == "json":
-                return json.dumps(result, indent=2)
+            # Identify potential date/time columns
+            date_columns = []
+            for column in data[0].keys():
+                # Check if column name suggests date
+                if any(date_term in column.lower() for date_term in ["date", "time", "day", "month", "year"]):
+                    date_columns.append(column)
+                    
+            if not date_columns:
+                html.append("<p class='warning'>No date/time columns identified for trend analysis</p>")
             else:
-                return str(result)
-
-    def _format_analysis_result(self, result: Dict[str, Any]) -> str:
-        """Format analysis result for output."""
-        output = ["Data Analysis Results"]
-        output.append("=" * 50)
-        
-        # Summary
-        output.append("\nSummary:")
-        if "summary" in result:
-            for key, value in result["summary"].items():
-                output.append(f"  {key.replace('_', ' ').title()}: {value}")
-        
-        # Structure
-        if "structure" in result:
-            output.append("\nStructure:")
-            if "fields" in result["structure"]:
-                output.append(f"  Fields: {', '.join(result['structure']['fields'])}")
-            if "sample" in result["structure"]:
-                output.append("  Sample Record:")
-                for k, v in result["structure"]["sample"].items():
-                    output.append(f"    {k}: {v}")
-        
-        # Quality issues
-        if "quality_issues" in result and result["quality_issues"]:
-            output.append("\nQuality Issues:")
-            for issue in result["quality_issues"]:
-                output.append(f"  - {issue['type']} in field '{issue.get('field', 'unknown')}': {issue.get('count', 0)} instances (Severity: {issue.get('severity', 'medium')})")
-        
-        # Recommendations
-        if "recommendations" in result and result["recommendations"]:
-            output.append("\nRecommendations:")
-            for i, rec in enumerate(result["recommendations"], 1):
-                output.append(f"  {i}. {rec}")
-        
-        return "\n".join(output)
-
-    def _format_statistics_result(self, result: Dict[str, Any]) -> str:
-        """Format statistics result for output."""
-        output = ["Data Statistics Results"]
-        output.append("=" * 50)
-        
-        output.append(f"\nRecord Count: {result.get('record_count', 0)}")
-        
-        # Field statistics
-        if "field_statistics" in result and result["field_statistics"]:
-            output.append("\nField Statistics:")
-            
-            for field, stats in result["field_statistics"].items():
-                output.append(f"\n  {field}:")
-                output.append(f"    Type: {stats.get('data_type', 'unknown')}")
-                output.append(f"    Count: {stats.get('count', 0)}")
-                output.append(f"    Null: {stats.get('null_count', 0)} ({stats.get('null_percentage', 0):.1%})")
-                output.append(f"    Unique: {stats.get('unique_count', 0)}")
+                # Use first identified date column
+                date_column = date_columns[0]
+                html.append(f"<p>Time dimension: <strong>{date_column}</strong></p>")
                 
-                if stats.get('data_type') == 'numeric':
-                    output.append(f"    Min: {stats.get('min', 0)}")
-                    output.append(f"    Max: {stats.get('max', 0)}")
-                    output.append(f"    Mean: {stats.get('mean', 0)}")
-                    output.append(f"    Median: {stats.get('median', 0)}")
-                    if 'std_dev' in stats:
-                        output.append(f"    Std Dev: {stats['std_dev']}")
+                # Identify numeric columns
+                numeric_columns = self._identify_numeric_columns(data)
                 
-                if stats.get('data_type') == 'categorical' and 'top_values' in stats:
-                    output.append("    Top Values:")
-                    for value, count in stats['top_values'].items():
-                        output.append(f"      - {value}: {count}")
+                if not numeric_columns:
+                    html.append("<p class='warning'>No numeric columns found for trend analysis</p>")
+                else:
+                    # Sort data by date column
+                    sorted_data = sorted(data, key=lambda x: x.get(date_column, ""))
+                    
+                    # Analyze trends for each numeric column
+                    for column in numeric_columns:
+                        # Extract date-value pairs
+                        series = [(row.get(date_column), float(row.get(column, 0))) 
+                                for row in sorted_data 
+                                if column in row and row[column] is not None]
+                        
+                        if len(series) < 2:
+                            continue
+                            
+                        # Calculate trend indicators
+                        values = [pair[1] for pair in series]
+                        first_value = values[0]
+                        last_value = values[-1]
+                        
+                        # Calculate change
+                        absolute_change = last_value - first_value
+                        percent_change = (absolute_change / first_value) * 100 if first_value != 0 else float('inf')
+                        
+                        # Determine trend direction
+                        if absolute_change > 0:
+                            direction = "increasing"
+                            direction_class = "positive"
+                        elif absolute_change < 0:
+                            direction = "decreasing"
+                            direction_class = "negative"
+                        else:
+                            direction = "stable"
+                            direction_class = "neutral"
+                            
+                        html.append(f"<h4>{column}</h4>")
+                        html.append("<table>")
+                        html.append("<tr><th>Metric</th><th>Value</th></tr>")
+                        html.append(f"<tr><td>First Value</td><td>{first_value:.2f}</td></tr>")
+                        html.append(f"<tr><td>Last Value</td><td>{last_value:.2f}</td></tr>")
+                        html.append(f"<tr><td>Absolute Change</td><td>{absolute_change:.2f}</td></tr>")
+                        html.append(f"<tr><td>Percent Change</td><td>{percent_change:.1f}%</td></tr>")
+                        html.append(f"<tr><td>Direction</td><td class='{direction_class}'>{direction}</td></tr>")
+                        html.append("</table>")
+                        
+                        # Add data points table
+                        html.append("<h5>Data Points</h5>")
+                        html.append("<table>")
+                        html.append(f"<tr><th>{date_column}</th><th>{column}</th></tr>")
+                        
+                        # Show at most 10 points
+                        display_points = []
+                        if len(series) <= 10:
+                            display_points = series
+                        else:
+                            # Show first, last, and some middle points
+                            display_points = series[:3] + series[len(series)//2-1:len(series)//2+2] + series[-3:]
+                            
+                        for date_val, value in display_points:
+                            html.append(f"<tr><td>{date_val}</td><td>{value:.2f}</td></tr>")
+                            
+                        html.append("</table>")
+                        
+        # Data sample section
+        html.append("<h2>Data Sample</h2>")
         
-        # Summary statistics
-        if "summary_statistics" in result and result["summary_statistics"]:
-            output.append("\nSummary Statistics:")
-            for key, value in result["summary_statistics"].items():
-                if key != "field_count" and key != "record_count":  # Already shown
-                    output.append(f"  {key.replace('_', ' ').title()}: {value}")
-        
-        return "\n".join(output)
-
-    def _format_anomalies_result(self, result: Dict[str, Any]) -> str:
-        """Format anomalies result for output."""
-        output = ["Data Anomalies Results"]
-        output.append("=" * 50)
-        
-        # Field anomalies
-        if "field_anomalies" in result and result["field_anomalies"]:
-            output.append("\nField Anomalies:")
-            
-            for field, anomalies in result["field_anomalies"].items():
-                output.append(f"\n  {field}:")
-                for anomaly in anomalies:
-                    if anomaly["type"] == "outlier":
-                        output.append(f"    - Outliers: {anomaly.get('count', 0)} values outside range [{anomaly.get('lower_bound', 'N/A')}, {anomaly.get('upper_bound', 'N/A')}]")
-                    elif anomaly["type"] == "unusual_value":
-                        output.append(f"    - Unusual Values: {anomaly.get('count', 0)} rare values detected")
-                        if "rare_values" in anomaly and len(anomaly["rare_values"]) <= 5:
-                            for rare in anomaly["rare_values"]:
-                                output.append(f"      - '{rare['value']}': {rare['count']} occurrences ({rare['percentage']:.1%})")
-                    else:
-                        output.append(f"    - {anomaly['type']}: {anomaly.get('count', 0)} instances")
-        
-        # Record anomalies
-        if "record_anomalies" in result and result["record_anomalies"]:
-            output.append("\nRecord Anomalies:")
-            output.append(f"  {len(result['record_anomalies'])} records with anomalies detected")
-            
-            # Show details for up to 5 records
-            for i, record in enumerate(result["record_anomalies"][:5]):
-                output.append(f"\n  Record #{record['record_index']}:")
-                for anomaly in record["anomalies"]:
-                    if anomaly["type"] == "sparse_record":
-                        output.append(f"    - Sparse Record: Only {anomaly['non_null_percentage']:.1%} of fields have values")
-                    elif anomaly["type"] == "multiple_anomalies":
-                        output.append(f"    - Multiple Anomalies: Issues in fields {', '.join(anomaly['anomalous_fields'])}")
-                    else:
-                        output.append(f"    - {anomaly['type']}")
-            
-            if len(result["record_anomalies"]) > 5:
-                output.append(f"\n  ... and {len(result['record_anomalies']) - 5} more anomalous records")
-        
-        # Pattern violations
-        if "pattern_violations" in result and result["pattern_violations"]:
-            output.append("\nPattern Violations:")
-            for violation in result["pattern_violations"]:
-                output.append(f"  - {violation['type']}: {violation.get('description', 'No description')}")
-        
-        return "\n".join(output)
-
-    def _format_visualization_result(self, result: Dict[str, Any]) -> str:
-        """Format visualization preparation result for output."""
-        output = [f"Data Prepared for {result['visualization_type'].title()} Visualization"]
-        output.append("=" * 50)
-        
-        # Metadata
-        if "metadata" in result:
-            output.append("\nMetadata:")
-            for key, value in result["metadata"].items():
-                output.append(f"  {key.replace('_', ' ').title()}: {value}")
-        
-        # Data preview
-        if "data" in result and result["data"]:
-            output.append("\nData Preview:")
-            
-            if isinstance(result["data"], list):
-                # Show first 5 items
-                for i, item in enumerate(result["data"][:5]):
-                    output.append(f"\n  Item {i+1}:")
-                    if isinstance(item, dict):
-                        for k, v in item.items():
-                            output.append(f"    {k}: {v}")
-                    else:
-                        output.append(f"    {item}")
+        if isinstance(data, list) and data:
+            if all(isinstance(item, dict) for item in data):
+                # Tabular data
+                html.append("<table>")
                 
-                if len(result["data"]) > 5:
-                    output.append(f"\n  ... and {len(result['data']) - 5} more items")
+                # Headers
+                html.append("<tr>")
+                for key in data[0].keys():
+                    html.append(f"<th>{key}</th>")
+                html.append("</tr>")
+                
+                # Rows (max 10)
+                for item in data[:10]:
+                    html.append("<tr>")
+                    for value in item.values():
+                        html.append(f"<td>{value}</td>")
+                    html.append("</tr>")
+                    
+                html.append("</table>")
+                
+                if len(data) > 10:
+                    html.append(f"<p>Showing 10 of {len(data)} records</p>")
+            else:
+                # Non-tabular list
+                html.append("<pre>")
+                html.append(str(data[:10]))
+                html.append("</pre>")
+                
+                if len(data) > 10:
+                    html.append(f"<p>Showing 10 of {len(data)} items</p>")
+        else:
+            # Non-list data
+            html.append("<pre>")
+            html.append(str(data))
+            html.append("</pre>")
+            
+        html.append("</body>")
+        html.append("</html>")
         
+        return "\n".join(html)
+
+    async def _detect_anomalies(
+        self, 
+        data_path: Optional[str],
+        output_path: Optional[str]
+    ) -> ToolResult:
+        """Detect anomalies in data."""
+        if not data_path:
+            return ToolResult(error="Data path is required")
+            
+        # Load data if not already loaded
+        dataset = self._get_dataset(data_path)
+        if not dataset:
+            load_result = await self._load_data(data_path, "auto")
+            if load_result.error:
+                return load_result
+                
+            # Get the newly loaded dataset
+            dataset_id = load_result.output.split("Dataset ID: ")[1].split("\n")[0]
+            dataset = self.loaded_datasets.get(dataset_id)
+            
+        # Detect anomalies
+        try:
+            anomalies = self._find_anomalies(dataset["data"])
+            
+            # Save result if output path provided
+            result_text = ""
+            if output_path:
+                full_output_path = self._resolve_path(output_path)
+                result_text = await self._save_data(anomalies, full_output_path, "html")
+                
+            return ToolResult(
+                output=f"Anomaly detection completed\n"
+                       f"Dataset: {dataset['id']}\n"
+                       f"Anomalies found: {len(anomalies['records'])}\n"
+                       f"{result_text}\n\n"
+                       f"Anomaly Summary:\n{self._format_anomalies(anomalies)}"
+            )
+            
+        except Exception as e:
+            return ToolResult(error=f"Error detecting anomalies: {str(e)}")
+
+    def _find_anomalies(self, data: Any) -> Dict[str, Any]:
+        """Find anomalies in data."""
+        if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+            raise ValueError("Data must be a list of dictionaries for anomaly detection")
+            
+        anomalies = {
+            "summary": {},
+            "records": []
+        }
+        
+        # Identify numeric columns
+        numeric_columns = self._identify_numeric_columns(data)
+        
+        if not numeric_columns:
+            anomalies["summary"]["message"] = "No numeric columns found for anomaly detection"
+            return anomalies
+            
+        # Calculate statistics for each numeric column
+        column_stats = {}
+        for column in numeric_columns:
+            values = [float(row[column]) for row in data if column in row and row[column] is not None]
+            
+            if not values:
+                continue
+                
+            # Calculate mean and standard deviation
+            mean = sum(values) / len(values)
+            variance = sum((x - mean) ** 2 for x in values) / len(values)
+            std_dev = variance ** 0.5
+            
+            column_stats[column] = {
+                "mean": mean,
+                "std_dev": std_dev,
+                "min": min(values),
+                "max": max(values),
+                "q1": sorted(values)[int(len(values) * 0.25)],
+                "q3": sorted(values)[int(len(values) * 0.75)]
+            }
+            
+            # Calculate IQR
+            iqr = column_stats[column]["q3"] - column_stats[column]["q1"]
+            column_stats[column]["lower_bound"] = column_stats[column]["q1"] - 1.5 * iqr
+            column_stats[column]["upper_bound"] = column_stats[column]["q3"] + 1.5 * iqr
+            
+        # Find anomalies
+        for i, row in enumerate(data):
+            row_anomalies = []
+            
+            for column in numeric_columns:
+                if column not in row or row[column] is None:
+                    continue
+                    
+                value = float(row[column])
+                stats = column_stats[column]
+                
+                # Check for outliers using Z-score
+                z_score = (value - stats["mean"]) / stats["std_dev"] if stats["std_dev"] > 0 else 0
+                
+                if abs(z_score) > 3:
+                    row_anomalies.append({
+                        "column": column,
+                        "value": value,
+                        "z_score": z_score,
+                        "type": "z_score",
+                        "message": f"Z-score of {z_score:.2f} (more than 3 standard deviations from mean)"
+                    })
+                    
+                # Check for outliers using IQR
+                if value < stats["lower_bound"] or value > stats["upper_bound"]:
+                    row_anomalies.append({
+                        "column": column,
+                        "value": value,
+                        "type": "iqr",
+                        "message": f"Outside IQR bounds ({stats['lower_bound']:.2f} - {stats['upper_bound']:.2f})"
+                    })
+                    
+            if row_anomalies:
+                anomalies["records"].append({
+                    "index": i,
+                    "record": row,
+                    "anomalies": row_anomalies
+                })
+                
+        # Add summary
+        anomalies["summary"] = {
+            "total_records": len(data),
+            "anomalous_records": len(anomalies["records"]),
+            "anomaly_rate": len(anomalies["records"]) / len(data) if data else 0,
+            "column_stats": column_stats
+        }
+        
+        return anomalies
+
+    def _format_anomalies(self, anomalies: Dict[str, Any]) -> str:
+        """Format anomalies for display."""
+        output = []
+        
+        summary = anomalies["summary"]
+        records = anomalies["records"]
+        
+        output.append(f"Total Records: {summary.get('total_records', 0)}")
+        output.append(f"Anomalous Records: {summary.get('anomalous_records', 0)}")
+        output.append(f"Anomaly Rate: {summary.get('anomaly_rate', 0):.1%}")
+        
+        if not records:
+            output.append("\nNo anomalies detected")
+            return "\n".join(output)
+            
+        # Group anomalies by column
+        column_anomalies = {}
+        for record in records:
+            for anomaly in record["anomalies"]:
+                column = anomaly["column"]
+                if column not in column_anomalies:
+                    column_anomalies[column] = []
+                column_anomalies[column].append(anomaly)
+                
+        # Show anomalies by column
+        output.append("\nAnomalies by Column:")
+        for column, anomalies_list in column_anomalies.items():
+            output.append(f"\n  {column}:")
+            output.append(f"    Count: {len(anomalies_list)}")
+            
+            # Show example anomalies
+            if anomalies_list:
+                output.append("    Examples:")
+                for anomaly in anomalies_list[:3]:
+                    output.append(f"      - Value: {anomaly['value']}, {anomaly['message']}")
+                    
+                if len(anomalies_list) > 3:
+                    output.append(f"      - ... and {len(anomalies_list) - 3} more")
+                    
+        # Show top anomalous records
+        output.append("\nTop Anomalous Records:")
+        for record in records[:5]:
+            output.append(f"\n  Record #{record['index']}:")
+            for anomaly in record["anomalies"]:
+                output.append(f"    - {anomaly['column']}: {anomaly['value']} ({anomaly['message']})")
+                
+        if len(records) > 5:
+            output.append(f"\n  ... and {len(records) - 5} more anomalous records")
+            
         return "\n".join(output)
-
-    def get_processing_history(self) -> List[Dict[str, Any]]:
-        """Get the data processing history."""
-        return self.processing_history
-
-    def clear_cache(self) -> None:
-        """Clear the data cache."""
-        self.data_cache.clear()
