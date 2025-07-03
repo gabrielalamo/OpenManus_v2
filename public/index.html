@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenManus Interface</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .chat-container {
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 20px;
+      height: 400px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+    }
+    .input-container {
+      display: flex;
+    }
+    #prompt-input {
+      flex-grow: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      margin-left: 10px;
+      cursor: pointer;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    .user-message {
+      background-color: #e6f7ff;
+      text-align: right;
+    }
+    .agent-message {
+      background-color: #f1f1f1;
+    }
+  </style>
+</head>
+<body>
+  <h1>OpenManus Interface</h1>
+  <div class="chat-container" id="chat-container"></div>
+  <div class="input-container">
+    <input type="text" id="prompt-input" placeholder="Enter your prompt...">
+    <button onclick="sendPrompt()">Send</button>
+  </div>
+
+  <script>
+    async function sendPrompt() {
+      const promptInput = document.getElementById('prompt-input');
+      const chatContainer = document.getElementById('chat-container');
+      const prompt = promptInput.value.trim();
+      
+      if (!prompt) return;
+      
+      // Add user message to chat
+      const userMessage = document.createElement('div');
+      userMessage.className = 'message user-message';
+      userMessage.textContent = prompt;
+      chatContainer.appendChild(userMessage);
+      
+      // Clear input
+      promptInput.value = '';
+      
+      try {
+        // Send request to API
+        const response = await fetch('/api/agent', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ prompt })
+        });
+        
+        const data = await response.json();
+        
+        // Add agent message to chat
+        const agentMessage = document.createElement('div');
+        agentMessage.className = 'message agent-message';
+        agentMessage.textContent = data.result;
+        chatContainer.appendChild(agentMessage);
+        
+        // Scroll to bottom
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to process your request');
+      }
+    }
+    
+    // Allow Enter key to send prompt
+    document.getElementById('prompt-input').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        sendPrompt();
+      }
+    });
+  </script>
+</body>
+</html>
